@@ -177,6 +177,69 @@ jobs:
             rm $directory/Chart.yaml
             mv $directory/Chart.yaml.bak $directory/Chart.yaml
           done
+
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        with:
+          project_id: '${{ vars.GCP_DEB_REGISTRY_PROJECT }}'
+          credentials_json: '${{ secrets.GCP_DEB_REGISTRY_CREDENTIALS}}'
+    
+      - name: 'Set up Cloud SDK'
+        uses: 'google-github-actions/setup-gcloud@v2'
+        with:
+          version: '>= 363.0.0'
+  
+      - name: Build .deb packages and Push to Google Artifact Debian Registry
+        run: |
+            for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'control' | xargs dirname`
+            do
+              echo Run package build for $directory
+              if [[ $directory == '.' ]]; then
+                package=${{ github.event.repository.name }}
+              else
+                package=$directory
+              fi
+              export DIRECTORY=$directory
+              echo "DIRECTORY<<EOF" >> ${GITHUB_ENV}
+              echo "${DIRECTORY}" >> ${GITHUB_ENV}
+              echo "EOF" >> ${GITHUB_ENV}
+              export VERSION=${{ env.VERSION }}
+              echo "VERSION<<EOF" >> ${GITHUB_ENV}
+              echo "${VERSION}" >> ${GITHUB_ENV}
+              echo "EOF" >> ${GITHUB_ENV}
+              export SRV_ETH0_IPv4=discovery
+              echo "SRV_ETH0_IPv4<<EOF" >> ${GITHUB_ENV}
+              echo "${SRV_ETH0_IPv4}" >> ${GITHUB_ENV}
+              echo "EOF" >> ${GITHUB_ENV}
+              export SERVICE_NAME=$(cat $directory/control | grep ^Package: | cut -d: -f2 | cut -c 2- | tr -d '"')
+              echo "SERVICE_NAME<<EOF" >> ${GITHUB_ENV}
+              echo "${SERVICE_NAME}" >> ${GITHUB_ENV}
+              echo "EOF" >> ${GITHUB_ENV}
+              export PACKAGE_VERSION=$(cat $directory/control | grep ^Version: | cut -d: -f2 | cut -c 2- | tr -d '"')
+              export RELEASE_VERSION=$PACKAGE_VERSION-$VERSION
+              echo "RELEASE_VERSION<<EOF" >> ${GITHUB_ENV}
+              echo "${RELEASE_VERSION}" >> ${GITHUB_ENV}
+              echo "EOF" >> ${GITHUB_ENV}
+              echo Release package version $RELEASE_VERSION
+              # change package version in control file
+              sed -i.bak 's/Version:.*/Version: '$RELEASE_VERSION'/g' $directory/control
+              cd $directory && ./scripts/build-deb.sh
+              PACKAGE_NAME=./target/$SERVICE_NAME-$RELEASE_VERSION.deb
+              echo push to Google Artifact Debian Registry $DEB_REGISTRY
+              gcloud artifacts apt upload $DEB_REGISTRY --location=$REGISTRY_LOCATION --source=$PACKAGE_NAME
+              # revert changes of file control version and remove bak files
+              rm control
+              mv control.bak control
+              cd ..
+            done
+        env:
+          DEB_REGISTRY: ${{ vars.GCP_DEB_REGISTRY }}
+          REGISTRY_LOCATION: ${{ vars.GCP_REGISTRY_LOCATION }}
+          DIRECTORY: ${{ env.DIRECTORY }}
+          SERVICE_NAME: ${{ env.SERVICE_NAME }}
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
+          SRV_ETH0_IPv4: ${{ env.SRV_ETH0_IPv4 }}
+  
       - name: Rollback release
         if: failure() && github.event_name == 'release'
         run: |
