@@ -34,6 +34,8 @@ on:
         required: true
       HELM_REGISTRY_PASSWORD:
         required: true
+      GCP_DEB_REGISTRY_CREDENTIALS:
+        required: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
