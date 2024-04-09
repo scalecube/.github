@@ -205,6 +205,10 @@ jobs:
               echo "DIRECTORY<<EOF" >> ${GITHUB_ENV}
               echo "${DIRECTORY}" >> ${GITHUB_ENV}
               echo "EOF" >> ${GITHUB_ENV}
+              export VERSION=${{ env.VERSION }}
+              echo "VERSION<<EOF" >> ${GITHUB_ENV}
+              echo "${VERSION}" >> ${GITHUB_ENV}
+              echo "EOF" >> ${GITHUB_ENV}
               echo Release package version $VERSION
               cd $directory && source ./src/deb/build-deb.sh
               PACKAGE_NAME=./target/${SERVICE_NAME}-${VERSION}.deb
