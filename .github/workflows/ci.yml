@@ -215,7 +215,7 @@ jobs:
               if [[ "${{ env.VERSION }}" == "develop" || "${{ env.VERSION }}" == "master" ]]; then
                  export VERSION=1.0-$(git rev-parse --abbrev-ref HEAD)-$(git describe --tags --abbrev=1 2>/dev/null)-${GITHUB_RUN_ATTEMPT}
               else
-                 export VERSION=${{ env.VERSION }}
+                 export VERSION=${{ env.VERSION }}-${GITHUB_RUN_ATTEMPT}
               fi
               echo "VERSION<<EOF" >> ${GITHUB_ENV}
               echo "${VERSION}" >> ${GITHUB_ENV}
