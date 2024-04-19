@@ -221,11 +221,15 @@ jobs:
               echo "${VERSION}" >> ${GITHUB_ENV}
               echo "EOF" >> ${GITHUB_ENV}
               echo Release package version $VERSION
-              cd $directory && source ./src/deb/build-deb.sh
-              PACKAGE_NAME=./target/${SERVICE_NAME}-${VERSION}.deb
-              echo push to Google Artifactory Debian Registry $DEB_REGISTRY
-              gcloud artifacts apt upload $DEB_REGISTRY --location=$REGISTRY_LOCATION --source=$PACKAGE_NAME
-              cd ..
+              if [ -f $directory/src/deb/build-deb.sh ]; then
+                  cd $directory && source ./src/deb/build-deb.sh
+                  PACKAGE_NAME=./target/${SERVICE_NAME}-${VERSION}.deb
+                  echo push to Google Artifactory Debian Registry $DEB_REGISTRY
+                  gcloud artifacts apt upload $DEB_REGISTRY --location=$REGISTRY_LOCATION --source=$PACKAGE_NAME
+                  cd ..
+              else
+                 echo "The file $directory/src/deb/build-deb.sh does not exist in $directory. Skip it."
+              fi
             done
         env:
           DEB_REGISTRY: ${{ vars.GCP_DEB_REGISTRY }}
