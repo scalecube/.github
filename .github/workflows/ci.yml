@@ -212,7 +212,7 @@ jobs:
               echo "DIRECTORY<<EOF" >> ${GITHUB_ENV}
               echo "${DIRECTORY}" >> ${GITHUB_ENV}
               echo "EOF" >> ${GITHUB_ENV}
-              if [[ "${{ env.VERSION }}" == *develop* || "${{ env.VERSION }}" == *master* || "${{ env.VERSION }}" == [0-9]* ]]; then
+              if [[ "${{ env.VERSION }}" == *develop* || "${{ env.VERSION }}" == *master* || "${{ env.VERSION }}" != [0-9]* ]]; then
                  export VERSION=1.0-$(git rev-parse --abbrev-ref HEAD)-$(git describe --tags --abbrev=1 2>/dev/null)-${GITHUB_RUN_ATTEMPT}
               else
                  export VERSION=${{ env.VERSION }}-${GITHUB_RUN_ATTEMPT}
