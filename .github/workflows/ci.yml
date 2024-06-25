@@ -52,7 +52,7 @@ env:
 
 jobs:
   build:
-    name: ${{ github.run_id }}-${{ github.run_number }}-${{ runner.name }} Build (${{ matrix.arch }}) and mvn verify ${{ matrix.mvn-verify-opts }}
+    name: Build (${{ matrix.arch }}) and mvn verify ${{ matrix.mvn-verify-opts }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
