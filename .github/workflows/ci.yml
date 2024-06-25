@@ -114,7 +114,7 @@ jobs:
         if: always() && inputs.tests == true
         uses: actions/upload-artifact@v4
         with:
-          name: test-containers-logs-${{ github.run_id }}
+          name: test-containers-logs-${{ github.run_id }}-${{ github.workflow }}-${{ github.run_number }}-${{ runner.name }}
           path: target/logs/
           overwrite: true
   push:
