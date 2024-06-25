@@ -54,6 +54,8 @@ jobs:
   build:
     name: Build (${{ matrix.arch }}) and mvn verify ${{ matrix.mvn-verify-opts }}
     runs-on: ubuntu-latest
+    env:
+      JOB_NAME: Build (${{ matrix.arch }}) and mvn verify ${{ matrix.mvn-verify-opts }}
     strategy:
       fail-fast: false
       matrix:
@@ -114,7 +116,7 @@ jobs:
         if: always() && inputs.tests == true
         uses: actions/upload-artifact@v4
         with:
-          name: test-containers-logs-${{ github.run_id }}-${{ github.run_number }}-${{ runner.name }}---${{ github.jobs[github.job].name }}
+          name: logs-${{ github.run_number }}-${{ env.JOB_NAME }}
           path: target/logs/
           overwrite: true
   push:
