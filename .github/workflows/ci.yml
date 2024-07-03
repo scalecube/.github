@@ -59,6 +59,8 @@ jobs:
       matrix:
         arch: [ 'linux/amd64' ]
         mvn-verify-opts: ${{ fromJson(inputs.mvn-verify-opts) }}
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -102,6 +104,22 @@ jobs:
           done
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
+      - name: Find Dockerfiles
+        id: find-dockerfiles
+        run: |
+          DOCKERFILES=$(find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname)
+          echo "::set-output name=dockerfiles::${DOCKERFILES}"
+      - name: Set matrix
+        id: set-matrix
+        run: |
+          dockerfiles=${{ steps.find-dockerfiles.outputs.dockerfiles }}
+          matrix="{\"include\":["
+          for directory in $dockerfiles
+          do
+            matrix="$matrix{\"directory\":\"$directory\"},"
+          done
+          matrix="${matrix%?}]}"  # Remove the trailing comma and close the JSON array
+          echo "::set-output name=matrix::$matrix"
       - name: Maven Verify
         if: inputs.tests == true && github.event_name != 'release'
         run: |
@@ -125,6 +143,8 @@ jobs:
     name: Push artifacts
     needs: build
     runs-on: ubuntu-latest
+    strategy:
+      matrix: ${{ fromJson(needs.build.outputs.matrix) }}
     steps:
       - name: Overwrite VERSION env
         run: |
@@ -166,6 +186,15 @@ jobs:
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:latest \
             $directory
           done
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@0.20.0
+        with:
+          image-ref: 'ghcr.io/${{ github.repository }}/${{ matrix.directory }}:${{ github.sha }}'
+          format: 'table'
+          exit-code: '1'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
       - name: Package and publish to helm registry
         run: |
           for directory in `find ./charts -type d -maxdepth 1 -mindepth 1`
