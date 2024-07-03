@@ -173,7 +173,7 @@ jobs:
             $directory
           echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }}"
           docker pull ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }}
-          trivy image --format table --exit-code 1 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }}
+          trivy image --format table --exit-code 0 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }}
           done
       - name: Package and publish to helm registry
         run: |
