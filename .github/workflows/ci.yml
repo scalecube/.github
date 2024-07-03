@@ -275,4 +275,4 @@ jobs:
           sudo dpkg -i trivy_0.40.0_Linux-64bit.deb
       - name: Run Trivy repository scan
         run: |
-          trivy fs --exit-code 0 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH,MEDIUM --format table .
+          trivy fs --scanners vuln,secret --exit-code 0 --ignore-unfixed --severity CRITICAL,HIGH,MEDIUM .
