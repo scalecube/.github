@@ -195,7 +195,9 @@ jobs:
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
-          github-pat: ${{ secrets.ORGANIZATION_TOKEN }}
+        env:
+          TRIVY_USERNAME: ${GITHUB_ACTOR}
+          TRIVY_PASSWORD: ${{ secrets.ORGANIZATION_TOKEN }}
       - name: Package and publish to helm registry
         run: |
           for directory in `find ./charts -type d -maxdepth 1 -mindepth 1`
