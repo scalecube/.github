@@ -228,7 +228,7 @@ jobs:
               echo "EOF" >> ${GITHUB_ENV}
               echo Release package version $VERSION
               if [ -f $directory/src/deb/build-deb.sh ]; then
-Add                  cd $directory 
+                  cd $directory 
                   # change the DEB SHA ENV value in default-env file & make backup
                   sed -i.bak 's/SHA=.*/SHA='${{ github.sha }}'/g' ./src/deb/templates/default-env
                   source ./src/deb/build-deb.sh
