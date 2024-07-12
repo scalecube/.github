@@ -117,6 +117,14 @@ jobs:
           name: logs-${{ github.run_id }}-${{ github.run_number }}-${{ runner.name }}
           path: target/logs/
           overwrite: true
+      - name: Run Codacy Analysis CLI
+        uses: codacy/codacy-analysis-cli-action@master
+        with:
+          tool: spotbugs
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          upload: true
+          max-allowed-issues: 2147483647
+          verbose: true
   push:
     if: >
       inputs.force-publish == true 
