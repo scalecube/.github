@@ -60,6 +60,8 @@ jobs:
         arch: [ 'linux/amd64' ]
         mvn-verify-opts: ${{ fromJson(inputs.mvn-verify-opts) }}
     steps:
+      - name: jobName
+        run: echo '# Build 🚀' >> $GITHUB_STEP_SUMMARY
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -118,6 +120,8 @@ jobs:
           path: target/logs/
           overwrite: true
   push:
+    outputs:
+     images: ${{ steps.pushDockerImages.outputs.images }}
     if: >
       inputs.force-publish == true 
       || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'master'))
@@ -126,6 +130,8 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - name: jobName
+        run: echo '# Push 🚀' >> $GITHUB_STEP_SUMMARY
       - name: Overwrite VERSION env
         run: |
           echo VERSION=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
@@ -152,7 +158,12 @@ jobs:
       - name: Login to Docker
         run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
       - name: Push Docker images
+        id: pushDockerImages
         run: |
+          IMAGES=()
+          echo "## Docker Images" >> $GITHUB_STEP_SUMMARY
+          echo "| Image Name |" >> $GITHUB_STEP_SUMMARY
+          echo "| - | ">> $GITHUB_STEP_SUMMARY
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
             echo Run docker build for $directory
@@ -165,7 +176,25 @@ jobs:
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }} \
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:latest \
             $directory
+            echo "| ghcr.io/${github_repository}/$image:${{ env.version }} |" >> $GITHUB_STEP_SUMMARY
+            images+=(\"ghcr.io/${github_repository}/$image:${{ env.version }}\")
           done
+          # Convert the array to a JSON string
+          json_array="["
+          for element in "${IMAGES[@]}"; do
+              json_array+="$element,"
+          done
+          json_array="${json_array%,}]"
+          echo "::set-output name=img::$json_array"
+
+          VERSION=$(date +%Y%m%d%H%M%S)
+          echo "images=$json_array" >> $GITHUB_OUTPUT
+          echo "####################################"
+          echo $VERSION
+          echo "####################################"
+          echo ${IMAGES[@]}
+          echo "####################################"
+          echo $json_array
       - name: Package and publish to helm registry
         run: |
           for directory in `find ./charts -type d -maxdepth 1 -mindepth 1`
@@ -253,3 +282,86 @@ jobs:
         run: |
           echo Remove git tag
           git push origin :refs/tags/${{ github.event.release.tag_name }}
+  scan:
+    if: >
+      inputs.force-publish == true 
+      || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'master'))
+      || github.event_name == 'release' 
+    name: Scan ${{ matrix.image }}
+    needs: push
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ${{ fromJson(needs.push.outputs.images) }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: jobName
+        run: echo '# Scan 🚀' >> $GITHUB_STEP_SUMMARY
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Login to Docker
+        run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+      - name: Check image list
+        run:
+          echo ${{ fromJson(needs.push.outputs.images) }}
+      - name: Make trivy template file with heredoc
+        run: |
+          cat << 'EOF' > template.tpl 
+          {{- $critical := 0 }}
+          {{- $high := 0 }}
+
+          {{- range . }}
+            {{- range .Vulnerabilities }}
+              {{- if  eq .Severity "CRITICAL" }}
+                {{- $critical = add $critical 1 }}
+              {{- end }}
+              {{- if  eq .Severity "HIGH" }}
+                {{- $high = add $high 1 }}
+              {{- end }}
+            {{- end }}
+          {{- end }}
+
+          | VulnerabilityID | Severity |
+          | - | - |
+          {{- range .}}
+            {{- range .Vulnerabilities }}
+          | {{ .VulnerabilityID }} |  {{ .Severity }} |
+            {{- end }}
+          {{- end }}
+          | Total Critical | {{ $critical }} |
+          | Total High | {{ $high }} |
+          EOF
+      - name: Trivy template vulnerability scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ matrix.image }}
+          scan-type: image
+          hide-progress: true
+          format: 'template'
+          template: '@template.tpl'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          output: 'scan-results.md'
+          github-pat: ${{ secrets.ORGANIZATION_TOKEN }}
+        env:
+          TRIVY_USERNAME: ${GITHUB_ACTOR}
+          TRIVY_PASSWORD: ${{ secrets.ORGANIZATION_TOKEN }}
+      - name: Trivy output scan results
+        run: cat scan-results.md >> $GITHUB_STEP_SUMMARY
+      - name: Trivy vulnerability scanner table format 
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ matrix.image }}
+          scan-type: image
+          format: 'table'
+          exit-code: '0'
+          ignore-unfixed: true
+          vuln-type: 'os,library'
+          severity: 'CRITICAL,HIGH'
+          output: 'dependency-results.sbom.json'
+          github-pat: ${{ secrets.ORGANIZATION_TOKEN }}
+        env:
+          TRIVY_USERNAME: ${GITHUB_ACTOR}
+          TRIVY_PASSWORD: ${{ secrets.ORGANIZATION_TOKEN }}
