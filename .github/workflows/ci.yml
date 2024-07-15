@@ -25,6 +25,13 @@ on:
         type: string
         required: false
         default: "['']"
+      fail-on-vulnerability-issues:
+        type: string
+        required: false
+        default: '0'
+        description: |
+          Fail pipeline if CVEs are identified.
+          Default is '0', possible values '0' or '1'
     secrets:
       ORGANIZATION_TOKEN:
         required: true
@@ -356,7 +363,7 @@ jobs:
           image-ref: ${{ matrix.image }}
           scan-type: image
           format: 'table'
-          exit-code: '0'
+          exit-code: "${{ inputs.fail-on-vulnerability-issues }}"
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
