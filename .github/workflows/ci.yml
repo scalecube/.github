@@ -130,7 +130,15 @@ jobs:
           max-allowed-issues: 2147483647
           skip-uncommitted-files-check: true
           verbose: true
-    
+
+      - name: Run codacy-coverage-reporter
+        uses: codacy/codacy-coverage-reporter-action@v1.3.0
+        with:
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          # or
+          # api-token: ${{ secrets.CODACY_API_TOKEN }}
+          #coverage-reports: <PATH_TO_REPORT>
+          # or a comma-separated list for multiple reports
       # - name: Report coverage to Codacy
       #   run: bash <(curl -Ls https://coverage.codacy.com/get.sh) report -r target/site/jacoco/jacoco.xml
       #   env:
