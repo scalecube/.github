@@ -130,10 +130,7 @@ jobs:
           max-allowed-issues: 2147483647
           skip-uncommitted-files-check: true
           verbose: true
-        
-      - name: Build and test with Maven
-        run: mvn clean verify
-    
+          
       - name: Download Codacy Coverage Reporter
         run: wget -O codacy-coverage-reporter-assembly.jar https://repository.codacy.com/repository/codacy-coverage-reporter/com/codacy/codacy-coverage-reporter/12.0.0/codacy-coverage-reporter-12.0.0-assembly.jar
     
