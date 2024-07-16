@@ -131,10 +131,10 @@ jobs:
           skip-uncommitted-files-check: true
           verbose: true
     
-      - name: Report coverage to Codacy
-        run: bash <(curl -Ls https://coverage.codacy.com/get.sh) report -r target/site/jacoco/jacoco.xml
-        env:
-          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+      # - name: Report coverage to Codacy
+      #   run: bash <(curl -Ls https://coverage.codacy.com/get.sh) report -r target/site/jacoco/jacoco.xml
+      #   env:
+      #     CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
        
   push:
     if: >
