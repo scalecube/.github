@@ -346,7 +346,7 @@ jobs:
           hide-progress: true
           format: 'template'
           template: '@template.tpl'
-          exit-code: '0'
+          exit-code: '1'
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
