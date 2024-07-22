@@ -372,7 +372,7 @@ jobs:
         env:
           TRIVY_USERNAME: ${GITHUB_ACTOR}
           TRIVY_PASSWORD: ${{ secrets.ORGANIZATION_TOKEN }}
-      - name: Trivy template vulnerability scan CI Fail Job
+      - name: Trivy trigger to Fail the CI
         uses: aquasecurity/trivy-action@master
         with:
           image-ref: ${{ matrix.image }}
