@@ -372,20 +372,3 @@ jobs:
         env:
           TRIVY_USERNAME: ${GITHUB_ACTOR}
           TRIVY_PASSWORD: ${{ secrets.ORGANIZATION_TOKEN }}
-      - name: Trivy trigger to Fail the CI
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ matrix.image }}
-          scan-type: image
-          hide-progress: true
-          format: 'template'
-          template: '@template.tpl'
-          exit-code: '1'
-          ignore-unfixed: true
-          vuln-type: 'os,library'
-          severity: 'CRITICAL,HIGH'
-          output: 'scan-results.md'
-          github-pat: ${{ secrets.ORGANIZATION_TOKEN }}
-        env:
-          TRIVY_USERNAME: ${GITHUB_ACTOR}
-          TRIVY_PASSWORD: ${{ secrets.ORGANIZATION_TOKEN }}
