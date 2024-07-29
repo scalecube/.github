@@ -140,10 +140,10 @@ jobs:
           skip-uncommitted-files-check: true
           verbose: true
       - name: Run codacy-coverage-reporter
-        if: success() || failure()
         uses: codacy/codacy-coverage-reporter-action@v1.3.0
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        continue-on-error: true
 
   push:
     outputs:
