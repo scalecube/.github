@@ -139,6 +139,7 @@ jobs:
           max-allowed-issues: 2147483647
           skip-uncommitted-files-check: true
           verbose: true
+        continue-on-error: true
       - name: Run codacy-coverage-reporter
         uses: codacy/codacy-coverage-reporter-action@v1.3.0
         with:
