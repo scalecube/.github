@@ -63,10 +63,6 @@ jobs:
   codacy-analysis-cli:
     name: Codacy Analysis CLI
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [ 'linux/amd64' ]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
