@@ -385,6 +385,7 @@ jobs:
         with:
           image-ref: ${{ matrix.image }}
           scan-type: image
+          timeout: 10m
           hide-progress: true
           format: 'template'
           template: '@template.tpl'
@@ -404,6 +405,7 @@ jobs:
         with:
           image-ref: ${{ matrix.image }}
           scan-type: image
+          timeout: 10m
           format: 'table'
           exit-code: "${{ inputs.fail-on-vulnerability-issues }}"
           ignore-unfixed: true
@@ -419,6 +421,7 @@ jobs:
         with:
           image-ref: ${{ matrix.image }}
           scan-type: image
+          timeout: 10m
           hide-progress: true
           format: 'template'
           template: '@template.tpl'
