@@ -428,6 +428,7 @@ jobs:
           exit-code: '0'
           ignore-unfixed: true
           vuln-type: 'os,library'
+          scanners: 'vuln'
           severity: 'CRITICAL,HIGH'
           output: 'scan-results.md'
           github-pat: ${{ secrets.ORGANIZATION_TOKEN }}
