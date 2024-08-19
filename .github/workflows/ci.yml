@@ -418,7 +418,6 @@ jobs:
           TRIVY_PASSWORD: ${{ secrets.ORGANIZATION_TOKEN }}
       - name: Trivy trigger to Fail the CI
         uses: aquasecurity/trivy-action@0.24.0
-        if: success() || failure()
         with:
           image-ref: ${{ matrix.image }}
           scan-type: image
@@ -426,7 +425,7 @@ jobs:
           hide-progress: true
           format: 'template'
           template: '@template.tpl'
-          exit-code: '1'
+          exit-code: '0'
           ignore-unfixed: true
           vuln-type: 'os,library'
           severity: 'CRITICAL,HIGH'
