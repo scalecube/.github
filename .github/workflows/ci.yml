@@ -418,6 +418,7 @@ jobs:
           TRIVY_PASSWORD: ${{ secrets.ORGANIZATION_TOKEN }}
       - name: Trivy trigger to Fail the CI
         uses: aquasecurity/trivy-action@0.24.0
+        if: success() || failure()
         with:
           image-ref: ${{ matrix.image }}
           scan-type: image
