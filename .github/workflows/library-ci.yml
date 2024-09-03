@@ -95,8 +95,6 @@ jobs:
       - name: Maven Verify
         run: mvn verify -B
 
-      - name: Maven Verify
-        run: mvn verify -B
       - name: Configure git
         run: |
           echo "Git checkout branch ${GITHUB_REF##*/}, commit ${GITHUB_SHA} was pushed by ${GITHUB_ACTOR}"
@@ -105,7 +103,7 @@ jobs:
           git reset --hard ${GITHUB_SHA}
           git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
           git config --global user.name "${GITHUB_ACTOR}"
-        if: github.ref == 'refs/heads/master'
+        if: github.ref_name == 'master'
       - name: Prepare release
         id: prepare_release
         run: |
@@ -114,15 +112,15 @@ jobs:
             -DdevelopmentVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.nextIncrementalVersion}-SNAPSHOT \
             -Darguments="-DskipTests=true"
           echo release_tag=$(git describe --tags --abbrev=0) >> $GITHUB_OUTPUT
-        if: github.ref == 'refs/heads/master'
+        if: github.ref_name == 'master'
       - name: Perform release
         run: mvn -B release:perform -Darguments="-DskipTests=true -Ddocker.image.extra-tag=master -Dmaven.resolver.transport=wagon"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GITHUB_REPOSITORY: ${{ secrets.GITHUB_REPOSITORY }}
-        if: github.ref == 'refs/heads/master'
+        if: github.ref_name == 'master'
       - name: Rollback release
-        if: failure()
+        if: failure() && github.ref_name == 'master'
         run: |
           mvn release:rollback || echo "nothing to rollback"
           if [ ! -z "${{ steps.prepare_release.outputs.release_tag }}" ]
@@ -140,8 +138,8 @@ jobs:
           mvn clean deploy -B -V
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'release'
       - name: Rollback release (remove tag)
-        if: failure()
+        if: failure() && github.event_name == 'release'
         run: git push origin :refs/tags/${{ github.event.release.tag_name }}
   
