@@ -60,44 +60,44 @@ env:
     }}
 
 jobs:
-  codacy-analysis-cli:
-    name: Codacy Analysis CLI
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'zulu'
-          cache: 'maven'
-      - name: Set up Maven
-        run: cp build.settings.xml ~/.m2/settings.xml
-      - name: Maven Build
-        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
-        env:
-          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-      - name: Run Codacy Analysis CLI
-        uses: codacy/codacy-analysis-cli-action@master
-        env:
-          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
-        with:
-          tool: spotbugs
-          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
-          upload: true
-          max-allowed-issues: 2147483647
-          skip-uncommitted-files-check: true
-          verbose: true
-        continue-on-error: true
-      - name: Run codacy-coverage-reporter
-        uses: codacy/codacy-coverage-reporter-action@v1.3.0
-        with:
-          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
-        continue-on-error: true
+  # codacy-analysis-cli:
+  #   name: Codacy Analysis CLI
+  #   runs-on: ubuntu-latest
+  #   steps:
+  #     - name: Checkout code
+  #       uses: actions/checkout@v4
+  #       with:
+  #         fetch-depth: 0
+  #         fetch-tags: true
+  #     - name: Set up JDK
+  #       uses: actions/setup-java@v4
+  #       with:
+  #         java-version: '17'
+  #         distribution: 'zulu'
+  #         cache: 'maven'
+  #     - name: Set up Maven
+  #       run: cp build.settings.xml ~/.m2/settings.xml
+  #     - name: Maven Build
+  #       run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
+  #       env:
+  #         GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+  #     - name: Run Codacy Analysis CLI
+  #       uses: codacy/codacy-analysis-cli-action@master
+  #       env:
+  #         CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+  #       with:
+  #         tool: spotbugs
+  #         project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+  #         upload: true
+  #         max-allowed-issues: 2147483647
+  #         skip-uncommitted-files-check: true
+  #         verbose: true
+  #       continue-on-error: true
+  #     - name: Run codacy-coverage-reporter
+  #       uses: codacy/codacy-coverage-reporter-action@v1.3.0
+  #       with:
+  #         project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+  #       continue-on-error: true
 
   build:
     name: Build (${{ matrix.arch }}) and mvn verify ${{ matrix.mvn-verify-opts }}
@@ -136,8 +136,14 @@ jobs:
       - name: Prepare TEST_IMAGE_TAG env
         run: |
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
-      - name: Build Docker images
+      - name: Build and Scan Docker images
         run: |
+          echo "Install Trivy scanner for Docker Image Security scanning"
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget https://github.com/aquasecurity/trivy/releases/download/v0.40.0/trivy_0.40.0_Linux-64bit.deb
+          sudo dpkg -i trivy_0.40.0_Linux-64bit.deb
+
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
             echo Run docker buildx build for $directory
@@ -148,7 +154,9 @@ jobs:
             fi
             docker buildx build --load --platform ${{ matrix.arch }} \
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
-            $directory
+            $directory 
+            echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
+            trivy image --format table --exit-code 0 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
           done
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
@@ -171,7 +179,6 @@ jobs:
   push:
     outputs:
      images: ${{ steps.pushDockerImages.outputs.images }}
-     image_ids: ${{ steps.pushDockerImages.outputs.image_ids }}
     if: >
       inputs.force-publish == true 
       || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'master'))
@@ -245,27 +252,7 @@ jobs:
           echo ${IMAGES[@]}
           echo "####################################"
           echo $json_array
-          # Show docker images
-          docker images
-          # Show docker image IDs
-          image_ids=($(docker images | grep ghcr.io | awk '{print $3}'))
-          echo $image_ids
-          # Convert the array to a JSON string for Docker image ID
-          json_array_id="["
-          for element_id in "${image_ids[@]}"; do
-              json_array_id+="$element_id,"
-          done
-          json_array_id="${json_array_id%,}]"
-          echo "::set-output name=img_id::$json_array_id"
 
-          VERSION=$(date +%Y%m%d%H%M%S)
-          echo "image_ids=$json_array_id" >> $GITHUB_OUTPUT
-          echo "####################################"
-          echo $VERSION
-          echo "####################################"
-          echo ${image_ids[@]}
-          echo "####################################"
-          echo $json_array_id
       - name: Package and publish to helm registry
         run: |
           for directory in `find ./charts -type d -maxdepth 1 -mindepth 1`
@@ -364,7 +351,6 @@ jobs:
       fail-fast: false
       matrix:
         image: ${{ fromJson(needs.push.outputs.images) }}
-        image_ids: ${{ fromJson(needs.push.outputs.image_ids) }}
     runs-on: ubuntu-latest
     steps:
       - name: jobName
@@ -376,7 +362,6 @@ jobs:
       - name: Check image list
         run:
           echo ${{ fromJson(needs.push.outputs.images) }}
-          echo ${{ fromJson(needs.push.outputs.image_ids) }}
       - name: Make trivy template file with heredoc
         run: |
           cat << 'EOF' > template.tpl 
@@ -407,7 +392,7 @@ jobs:
       - name: Trivy template vulnerability scan
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ matrix.image_ids }}
+          image-ref: ${{ matrix.image }}
           scan-type: image
           timeout: 10m
           hide-progress: true
@@ -427,7 +412,7 @@ jobs:
       - name: Trivy vulnerability scanner table format 
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ matrix.image_ids }}
+          image-ref: ${{ matrix.image }}
           scan-type: image
           timeout: 10m
           format: 'table'
@@ -443,7 +428,7 @@ jobs:
       - name: Trivy trigger to Fail the CI
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ matrix.image_ids }}
+          image-ref: ${{ matrix.image }}
           scan-type: image
           timeout: 10m
           hide-progress: true
