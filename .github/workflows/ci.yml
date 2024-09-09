@@ -171,6 +171,7 @@ jobs:
   push:
     outputs:
      images: ${{ steps.pushDockerImages.outputs.images }}
+     image_ids: ${{ steps.pushDockerImages.outputs.image_ids }}
     if: >
       inputs.force-publish == true 
       || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'master'))
@@ -244,6 +245,27 @@ jobs:
           echo ${IMAGES[@]}
           echo "####################################"
           echo $json_array
+          # Show docker images
+          docker images
+          # Show docker image IDs
+          image_ids=($(docker images | grep ghcr.io | awk '{print $3}'))
+          echo $image_ids
+          # Convert the array to a JSON string for Docker image ID
+          json_array_id="["
+          for element_id in "${image_ids[@]}"; do
+              json_array_id+="$element_id,"
+          done
+          json_array_id="${json_array_id%,}]"
+          echo "::set-output name=img_id::$json_array_id"
+
+          VERSION=$(date +%Y%m%d%H%M%S)
+          echo "image_ids=$json_array_id" >> $GITHUB_OUTPUT
+          echo "####################################"
+          echo $VERSION
+          echo "####################################"
+          echo ${image_ids[@]}
+          echo "####################################"
+          echo $json_array_id
       - name: Package and publish to helm registry
         run: |
           for directory in `find ./charts -type d -maxdepth 1 -mindepth 1`
@@ -342,6 +364,7 @@ jobs:
       fail-fast: false
       matrix:
         image: ${{ fromJson(needs.push.outputs.images) }}
+        image_ids: ${{ fromJson(needs.push.outputs.image_ids) }}
     runs-on: ubuntu-latest
     steps:
       - name: jobName
@@ -353,6 +376,7 @@ jobs:
       - name: Check image list
         run:
           echo ${{ fromJson(needs.push.outputs.images) }}
+          echo ${{ fromJson(needs.push.outputs.image_ids) }}
       - name: Make trivy template file with heredoc
         run: |
           cat << 'EOF' > template.tpl 
@@ -383,7 +407,7 @@ jobs:
       - name: Trivy template vulnerability scan
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ matrix.image }}
+          image-ref: ${{ matrix.image_ids }}
           scan-type: image
           timeout: 10m
           hide-progress: true
@@ -403,7 +427,7 @@ jobs:
       - name: Trivy vulnerability scanner table format 
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ matrix.image }}
+          image-ref: ${{ matrix.image_ids }}
           scan-type: image
           timeout: 10m
           format: 'table'
@@ -419,7 +443,7 @@ jobs:
       - name: Trivy trigger to Fail the CI
         uses: aquasecurity/trivy-action@0.24.0
         with:
-          image-ref: ${{ matrix.image }}
+          image-ref: ${{ matrix.image_ids }}
           scan-type: image
           timeout: 10m
           hide-progress: true
