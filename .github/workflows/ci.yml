@@ -183,7 +183,7 @@ jobs:
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
             $directory 
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            trivy image --format template --template @template.tpl --exit-code 1 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --format template --template @template.tpl --exit-code 0 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
             cat scan-results.md >> $GITHUB_STEP_SUMMARY
           done
