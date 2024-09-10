@@ -142,8 +142,6 @@ jobs:
           {{- $critical := 0 }}
           {{- $high := 0 }}
 
-          | VulnerabilityID | Severity |
-          | - | - |
           {{- range . }}
             {{- range .Vulnerabilities }}
               {{- if  eq .Severity "CRITICAL" }}
@@ -152,13 +150,18 @@ jobs:
               {{- if  eq .Severity "HIGH" }}
                 {{- $high = add $high 1 }}
               {{- end }}
-              | {{ .VulnerabilityID }} |  {{ .Severity }} |
             {{- end }}
           {{- end }}
 
+          | VulnerabilityID | Severity |
+          | - | - |
+          {{- range .}}
+            {{- range .Vulnerabilities }}
+          | {{ .VulnerabilityID }} |  {{ .Severity }} |
+            {{- end }}
+          {{- end }}
           | Total Critical | {{ $critical }} |
           | Total High | {{ $high }} |
-
           EOF
       - name: Build and Scan Docker images
         run: |
