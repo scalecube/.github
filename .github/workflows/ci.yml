@@ -189,6 +189,19 @@ jobs:
           done
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
+      - name: Scan Docker images and fail CI in case it detects any vulnerabilities
+        run: |
+          for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
+          do
+            echo Run docker buildx build for $directory
+            if [[ $directory == '.' ]]; then
+              image=${{ github.event.repository.name }}
+            else
+              image=$directory
+            fi
+            echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
+            trivy image --format template --template @template.tpl --exit-code 1 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+          done
       - name: Maven Verify
         if: inputs.tests == true && github.event_name != 'release'
         run: |
