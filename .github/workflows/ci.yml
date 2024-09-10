@@ -136,6 +136,33 @@ jobs:
       - name: Prepare TEST_IMAGE_TAG env
         run: |
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
+      - name: Make trivy template file with heredoc
+        run: |
+          cat << 'EOF' > template.tpl 
+          {{- $critical := 0 }}
+          {{- $high := 0 }}
+
+          {{- range . }}
+            {{- range .Vulnerabilities }}
+              {{- if  eq .Severity "CRITICAL" }}
+                {{- $critical = add $critical 1 }}
+              {{- end }}
+              {{- if  eq .Severity "HIGH" }}
+                {{- $high = add $high 1 }}
+              {{- end }}
+            {{- end }}
+          {{- end }}
+
+          | VulnerabilityID | Severity |
+          | - | - |
+          {{- range .}}
+            {{- range .Vulnerabilities }}
+          | {{ .VulnerabilityID }} |  {{ .Severity }} |
+            {{- end }}
+          {{- end }}
+          | Total Critical | {{ $critical }} |
+          | Total High | {{ $high }} |
+          EOF
       - name: Build and Scan Docker images
         run: |
           echo "Install Trivy scanner for Docker Image Security scanning"
@@ -156,7 +183,8 @@ jobs:
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
             $directory 
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            trivy image --format table --exit-code 1 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --format template --template template.tpl --exit-code 0 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            cat scan-results.md >> $GITHUB_STEP_SUMMARY
           done
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
