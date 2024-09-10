@@ -142,12 +142,6 @@ jobs:
           {{- $critical := 0 }}
           {{- $high := 0 }}
 
-          {{- $artifact := index . 0 }}
-          
-          | Docker Image Reference | {{ $artifact.ArtifactName }} |
-          | Docker Image ID        | {{ $artifact.ArtifactID }} |
-          | - | - |
-
           | VulnerabilityID | Severity |
           | - | - |
           {{- range . }}
@@ -164,7 +158,7 @@ jobs:
 
           | Total Critical | {{ $critical }} |
           | Total High | {{ $high }} |
-          
+
           EOF
       - name: Build and Scan Docker images
         run: |
@@ -187,6 +181,7 @@ jobs:
             $directory 
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
             trivy image --format template --template @template.tpl --exit-code 0 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
             cat scan-results.md >> $GITHUB_STEP_SUMMARY
           done
       - name: Show Docker images
