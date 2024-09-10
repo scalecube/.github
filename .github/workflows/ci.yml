@@ -152,6 +152,10 @@ jobs:
               {{- end }}
             {{- end }}
           {{- end }}
+          
+          | Docker Image Reference | {{ .ArtifactName }} |
+          | Docker Image ID        | {{ .ArtifactID }} |
+          | - | - |
 
           | VulnerabilityID | Severity |
           | - | - |
