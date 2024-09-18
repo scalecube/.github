@@ -136,12 +136,78 @@ jobs:
       - name: Prepare TEST_IMAGE_TAG env
         run: |
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
+      - name: Build Docker images
+        run: |
+          for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
+          do
+            echo Run docker buildx build for $directory
+            if [[ $directory == '.' ]]; then
+              image=${{ github.event.repository.name }}
+            else
+              image=$directory
+            fi
+            docker buildx build --load --platform ${{ matrix.arch }} \
+            -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
+            $directory
+          done
+      - name: Show Docker images
+        run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
+      - name: Maven Verify
+        if: inputs.tests == true && github.event_name != 'release'
+        run: |
+          sudo echo "172.17.0.1 host.docker.internal" | sudo tee -a /etc/hosts
+          sudo echo "127.0.0.1 $(eval hostname)" | sudo tee -a /etc/hosts
+          mvn verify ${{ matrix.mvn-verify-opts }} -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B
+        env:
+          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+      - name: Upload test containers logs
+        if: always() && inputs.tests == true
+        uses: actions/upload-artifact@v4
+        with:
+          name: logs-${{ github.run_id }}-${{ github.run_number }}-${{ runner.name }}
+          path: target/logs/
+          overwrite: true
+
+  scan:
+    name: Scan with Trivy
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ 'linux/amd64' ]
+    steps:
+      - name: jobName
+        run: echo '# Scan Docker Images' >> $GITHUB_STEP_SUMMARY
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'zulu'
+          cache: 'maven'
+      - name: Set up Maven
+        run: cp build.settings.xml ~/.m2/settings.xml
+      - name: Maven Build
+        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
+        env:
+          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to Docker
+        run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+      - name: Prepare TEST_IMAGE_TAG env
+        run: |
+          echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
       - name: Make Trivy template file with heredoc
         run: |
           cat << 'EOF' > template.tpl 
           {{- $critical := 0 }}
           {{- $high := 0 }}
-
           {{- range . }}
             {{- range .Vulnerabilities }}
               {{- if  eq .Severity "CRITICAL" }}
@@ -152,7 +218,6 @@ jobs:
               {{- end }}
             {{- end }}
           {{- end }}
-
           | VulnerabilityID | Severity |
           | - | - |
           {{- range .}}
@@ -163,6 +228,14 @@ jobs:
           | Total Critical | {{ $critical }} |
           | Total High | {{ $high }} |
           EOF
+      - name: Cache Trivy DB
+        id: cache-trivy-db
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ hashFiles('**/Dockerfile') }}--${{ github.run_id }}-${{ github.job }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
       - name: Build and Scan Docker images with Trivy
         run: |
           echo "Install Trivy scanner for Docker Image Security scanning"
@@ -170,7 +243,6 @@ jobs:
           sudo apt-get install -y wget > /dev/null 2>&1
           wget -q https://github.com/aquasecurity/trivy/releases/download/v0.55.0/trivy_0.55.0_Linux-64bit.deb
           sudo dpkg -i trivy_0.55.0_Linux-64bit.deb > /dev/null 2>&1
-
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
             echo Run docker buildx build for $directory
@@ -183,7 +255,7 @@ jobs:
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
             $directory 
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            trivy image --format template --template @template.tpl --exit-code 0 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --cache-dir ~/.cache/trivy --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
             cat scan-results.md >> $GITHUB_STEP_SUMMARY
           done
@@ -200,23 +272,8 @@ jobs:
               image=$directory
             fi
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            trivy image --format template --template @template.tpl --exit-code 1 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --cache-dir ~/.cache/trivy --format template --template @template.tpl --exit-code 1 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
           done
-      - name: Maven Verify
-        if: inputs.tests == true && github.event_name != 'release'
-        run: |
-          sudo echo "172.17.0.1 host.docker.internal" | sudo tee -a /etc/hosts
-          sudo echo "127.0.0.1 $(eval hostname)" | sudo tee -a /etc/hosts
-          mvn verify ${{ matrix.mvn-verify-opts }} -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B
-        env:
-          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-      - name: Upload test containers logs
-        if: always() && inputs.tests == true
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-${{ github.run_id }}-${{ github.run_number }}-${{ runner.name }}
-          path: target/logs/
-          overwrite: true
 
   push:
     outputs:
