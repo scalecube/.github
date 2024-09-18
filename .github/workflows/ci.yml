@@ -109,7 +109,7 @@ jobs:
         mvn-verify-opts: ${{ fromJson(inputs.mvn-verify-opts) }}
     steps:
       - name: jobName
-        run: echo '# Build and Scan 🚀' >> $GITHUB_STEP_SUMMARY
+        run: echo '# Build 🚀' >> $GITHUB_STEP_SUMMARY
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
