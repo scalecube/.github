@@ -100,7 +100,7 @@ jobs:
         continue-on-error: true
 
   build:
-    name: Build (${{ matrix.arch }}) and mvn verify ${{ matrix.mvn-verify-opts }}
+    name: Build (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -109,7 +109,9 @@ jobs:
         mvn-verify-opts: ${{ fromJson(inputs.mvn-verify-opts) }}
     steps:
       - name: jobName
-        run: echo '# Build and Scan 🚀' >> $GITHUB_STEP_SUMMARY
+        run: |
+          echo '# Build 🚀' >> $GITHUB_STEP_SUMMARY
+          echo "mvn verify ${{ matrix.mvn-verify-opts }}" >> $GITHUB_STEP_SUMMARY
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -136,41 +138,8 @@ jobs:
       - name: Prepare TEST_IMAGE_TAG env
         run: |
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
-      - name: Make Trivy template file with heredoc
+      - name: Build Docker images
         run: |
-          cat << 'EOF' > template.tpl 
-          {{- $critical := 0 }}
-          {{- $high := 0 }}
-
-          {{- range . }}
-            {{- range .Vulnerabilities }}
-              {{- if  eq .Severity "CRITICAL" }}
-                {{- $critical = add $critical 1 }}
-              {{- end }}
-              {{- if  eq .Severity "HIGH" }}
-                {{- $high = add $high 1 }}
-              {{- end }}
-            {{- end }}
-          {{- end }}
-
-          | VulnerabilityID | Severity |
-          | - | - |
-          {{- range .}}
-            {{- range .Vulnerabilities }}
-          | {{ .VulnerabilityID }} |  {{ .Severity }} |
-            {{- end }}
-          {{- end }}
-          | Total Critical | {{ $critical }} |
-          | Total High | {{ $high }} |
-          EOF
-      - name: Build and Scan Docker images with Trivy
-        run: |
-          echo "Install Trivy scanner for Docker Image Security scanning"
-          sudo apt-get update
-          sudo apt-get install -y wget > /dev/null 2>&1
-          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.55.0/trivy_0.55.0_Linux-64bit.deb
-          sudo dpkg -i trivy_0.55.0_Linux-64bit.deb > /dev/null 2>&1
-
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
             echo Run docker buildx build for $directory
@@ -181,27 +150,10 @@ jobs:
             fi
             docker buildx build --load --platform ${{ matrix.arch }} \
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
-            $directory 
-            echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            trivy image --format template --template @template.tpl --exit-code 0 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
-            echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
-            cat scan-results.md >> $GITHUB_STEP_SUMMARY
+            $directory
           done
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
-      - name: Scan Docker images and fail CI in case it detects any vulnerabilities
-        run: |
-          for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
-          do
-            echo Run docker buildx build for $directory
-            if [[ $directory == '.' ]]; then
-              image=${{ github.event.repository.name }}
-            else
-              image=$directory
-            fi
-            echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            trivy image --format template --template @template.tpl --exit-code 1 --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
-          done
       - name: Maven Verify
         if: inputs.tests == true && github.event_name != 'release'
         run: |
@@ -218,6 +170,113 @@ jobs:
           path: target/logs/
           overwrite: true
 
+  scan:
+    name: Scan with Trivy
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ 'linux/amd64' ]
+    steps:
+      - name: jobName
+        run: echo '# Scan Docker Images' >> $GITHUB_STEP_SUMMARY
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'zulu'
+          cache: 'maven'
+      - name: Set up Maven
+        run: cp build.settings.xml ~/.m2/settings.xml
+      - name: Maven Build
+        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
+        env:
+          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to Docker
+        run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+      - name: Prepare TEST_IMAGE_TAG env
+        run: |
+          echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
+      - name: Make Trivy template file with heredoc
+        run: |
+          cat << 'EOF' > template.tpl 
+          {{- $critical := 0 }}
+          {{- $high := 0 }}
+          {{- range . }}
+            {{- range .Vulnerabilities }}
+              {{- if  eq .Severity "CRITICAL" }}
+                {{- $critical = add $critical 1 }}
+              {{- end }}
+              {{- if  eq .Severity "HIGH" }}
+                {{- $high = add $high 1 }}
+              {{- end }}
+            {{- end }}
+          {{- end }}
+          | VulnerabilityID | Severity |
+          | - | - |
+          {{- range .}}
+            {{- range .Vulnerabilities }}
+          | {{ .VulnerabilityID }} |  {{ .Severity }} |
+            {{- end }}
+          {{- end }}
+          | Total Critical | {{ $critical }} |
+          | Total High | {{ $high }} |
+          EOF
+      - name: Cache Trivy DB
+        id: cache-trivy-db
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/trivy
+          key: trivy-db-${{ runner.os }}-${{ hashFiles('**/Dockerfile') }}--${{ github.run_id }}-${{ github.job }}
+          restore-keys: |
+            trivy-db-${{ runner.os }}-
+      - name: Build and Scan Docker images with Trivy
+        run: |
+          echo "Install Trivy scanner for Docker Image Security scanning"
+          sudo apt-get update
+          sudo apt-get install -y wget > /dev/null 2>&1
+          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.55.0/trivy_0.55.0_Linux-64bit.deb
+          sudo dpkg -i trivy_0.55.0_Linux-64bit.deb > /dev/null 2>&1
+          for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
+          do
+            echo Run docker buildx build for $directory
+            if [[ $directory == '.' ]]; then
+              image=${{ github.event.repository.name }}
+            else
+              image=$directory
+            fi
+            docker buildx build --load --platform ${{ matrix.arch }} \
+            -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
+            $directory 
+            echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
+            trivy image --cache-dir ~/.cache/trivy --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
+            cat scan-results.md >> $GITHUB_STEP_SUMMARY
+          done
+      - name: Show Docker images
+        run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
+      - name: Scan Docker images and fail CI in case it detects any vulnerabilities
+        run: |
+          for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
+          do
+            echo Run docker buildx build for $directory
+            if [[ $directory == '.' ]]; then
+              image=${{ github.event.repository.name }}
+            else
+              image=$directory
+            fi
+            echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
+            trivy image --cache-dir ~/.cache/trivy --format template --template @template.tpl --exit-code 1 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+          done
+
   push:
     outputs:
      images: ${{ steps.pushDockerImages.outputs.images }}
@@ -226,7 +285,7 @@ jobs:
       || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'master'))
       || github.event_name == 'release'
     name: Push artifacts
-    needs: build
+    needs: scan
     runs-on: ubuntu-latest
     steps:
       - name: jobName
