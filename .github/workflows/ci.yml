@@ -100,7 +100,7 @@ jobs:
         continue-on-error: true
 
   build:
-    name: Build and Test (${{ matrix.arch }}) | mvn verify ${{ matrix.mvn-verify-opts }}
+    name: Build and Test (${{ matrix.arch }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -109,7 +109,9 @@ jobs:
         mvn-verify-opts: ${{ fromJson(inputs.mvn-verify-opts) }}
     steps:
       - name: jobName
-        run: echo '# Build 🚀' >> $GITHUB_STEP_SUMMARY
+        run: |
+          echo '# Build 🚀' >> $GITHUB_STEP_SUMMARY
+          echo "mvn verify ${{ matrix.mvn-verify-opts }}" >> $GITHUB_STEP_SUMMARY
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
