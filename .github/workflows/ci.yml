@@ -257,13 +257,14 @@ jobs:
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
             $directory 
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            trivy image --cache-dir ~/.cache/trivy --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m --java-db-repository ${{env.TRIVY_JAVA_DB_REPOSITORY}} ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --cache-dir ~/.cache/trivy --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m --java-db-repository ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }} ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
             cat scan-results.md >> $GITHUB_STEP_SUMMARY
           done
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
+          TRIVY_DB_REPOSITORY: ${{ secrets.TRIVY_DB_REPOSITORY }}
         continue-on-error: true
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
@@ -278,11 +279,12 @@ jobs:
               image=$directory
             fi
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            trivy image --cache-dir ~/.cache/trivy --format template --template @template.tpl --exit-code 1 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m --java-db-repository ${{env.TRIVY_JAVA_DB_REPOSITORY}} ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --cache-dir ~/.cache/trivy --format template --template @template.tpl --exit-code 1 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m --java-db-repository ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }} ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
           done
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
+          TRIVY_DB_REPOSITORY: ${{ secrets.TRIVY_DB_REPOSITORY }}
         continue-on-error: true
 
   push:
