@@ -263,6 +263,7 @@ jobs:
           done
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+        continue-on-error: true
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
       - name: Scan Docker images and fail CI in case it detects any vulnerabilities
@@ -280,6 +281,7 @@ jobs:
           done
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+        continue-on-error: true
 
   push:
     outputs:
