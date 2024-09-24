@@ -234,14 +234,6 @@ jobs:
           | Total Critical | {{ $critical }} |
           | Total High | {{ $high }} |
           EOF
-      - name: Cache Trivy DB
-        id: cache-trivy-db
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ runner.os }}-${{ hashFiles('**/Dockerfile') }}--${{ github.run_id }}-${{ github.job }}
-          restore-keys: |
-            trivy-db-${{ runner.os }}-
       - name: Build and Scan Docker images with Trivy
         run: |
           echo "Install Trivy scanner for Docker Image Security scanning"
@@ -263,7 +255,7 @@ jobs:
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
             export TRIVY_DB_REPOSITORY=${{ env.TRIVY_DB_REPOSITORY }}
             export TRIVY_JAVA_DB_REPOSITORY=${{ env.TRIVY_JAVA_DB_REPOSITORY }}
-            trivy image --cache-dir ~/.cache/trivy --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --skip-update --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
             cat scan-results.md >> $GITHUB_STEP_SUMMARY
           done
@@ -286,7 +278,7 @@ jobs:
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
             export TRIVY_DB_REPOSITORY=${{ env.TRIVY_DB_REPOSITORY }}
             export TRIVY_JAVA_DB_REPOSITORY=${{ env.TRIVY_JAVA_DB_REPOSITORY }}
-            trivy image --cache-dir ~/.cache/trivy --format template --template @template.tpl --exit-code 1 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --skip-update --format template --template @template.tpl --exit-code 1 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
           done
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
