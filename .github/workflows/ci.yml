@@ -255,6 +255,7 @@ jobs:
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
             export TRIVY_DB_REPOSITORY=${{ env.TRIVY_DB_REPOSITORY }}
             export TRIVY_JAVA_DB_REPOSITORY=${{ env.TRIVY_JAVA_DB_REPOSITORY }}
+            docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
             trivy image --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
             cat scan-results.md >> $GITHUB_STEP_SUMMARY
@@ -276,14 +277,10 @@ jobs:
               image=$directory
             fi
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            export TRIVY_DB_REPOSITORY=${{ env.TRIVY_DB_REPOSITORY }}
-            export TRIVY_JAVA_DB_REPOSITORY=${{ env.TRIVY_JAVA_DB_REPOSITORY }}
             trivy image --format template --template @template.tpl --exit-code 1 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
           done
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-          TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
-          TRIVY_DB_REPOSITORY: ${{ secrets.TRIVY_DB_REPOSITORY }}
 
   push:
     outputs:
