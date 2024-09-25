@@ -239,8 +239,8 @@ jobs:
           echo "Install Trivy scanner for Docker Image Security scanning"
           sudo apt-get update
           sudo apt-get install -y wget > /dev/null 2>&1
-          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.55.0/trivy_0.55.0_Linux-64bit.deb
-          sudo dpkg -i trivy_0.55.0_Linux-64bit.deb > /dev/null 2>&1
+          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.55.2/trivy_0.55.2_Linux-64bit.deb
+          sudo dpkg -i trivy_0.55.2_Linux-64bit.deb > /dev/null 2>&1
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
             echo Run docker buildx build for $directory
@@ -256,7 +256,9 @@ jobs:
             export TRIVY_DB_REPOSITORY=${{ env.TRIVY_DB_REPOSITORY }}
             export TRIVY_JAVA_DB_REPOSITORY=${{ env.TRIVY_JAVA_DB_REPOSITORY }}
             docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
-            trivy image --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            echo ${{ env.TRIVY_DB_REPOSITORY }}
+            echo ${{ env.TRIVY_JAVA_DB_REPOSITORY }}
+            trivy image --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --db-repository ${{ env.TRIVY_DB_REPOSITORY }} --java-db-repository ${{ env.TRIVY_JAVA_DB_REPOSITORY }} --severity CRITICAL,HIGH --output scan-results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
             cat scan-results.md >> $GITHUB_STEP_SUMMARY
           done
@@ -290,7 +292,7 @@ jobs:
       || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'master'))
       || github.event_name == 'release'
     name: Push artifacts
-    needs: scan
+    needs: [ build, scan ]
     runs-on: ubuntu-latest
     steps:
       - name: jobName
