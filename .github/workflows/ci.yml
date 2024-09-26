@@ -46,9 +46,9 @@ on:
       CODACY_PROJECT_TOKEN:
         required: false
       TRIVY_DB_REPOSITORY:
-        required: true
+        required: false
       TRIVY_JAVA_DB_REPOSITORY:
-        required: true
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
