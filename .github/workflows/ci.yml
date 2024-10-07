@@ -45,6 +45,10 @@ on:
         required: true
       CODACY_PROJECT_TOKEN:
         required: false
+      TRIVY_DB_REPOSITORY:
+        required: false
+      TRIVY_JAVA_DB_REPOSITORY:
+        required: false
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -230,21 +234,13 @@ jobs:
           | Total Critical | {{ $critical }} |
           | Total High | {{ $high }} |
           EOF
-      - name: Cache Trivy DB
-        id: cache-trivy-db
-        uses: actions/cache@v3
-        with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ runner.os }}-${{ hashFiles('**/Dockerfile') }}--${{ github.run_id }}-${{ github.job }}
-          restore-keys: |
-            trivy-db-${{ runner.os }}-
       - name: Build and Scan Docker images with Trivy
         run: |
           echo "Install Trivy scanner for Docker Image Security scanning"
           sudo apt-get update
           sudo apt-get install -y wget > /dev/null 2>&1
-          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.55.0/trivy_0.55.0_Linux-64bit.deb
-          sudo dpkg -i trivy_0.55.0_Linux-64bit.deb > /dev/null 2>&1
+          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.55.2/trivy_0.55.2_Linux-64bit.deb
+          sudo dpkg -i trivy_0.55.2_Linux-64bit.deb > /dev/null 2>&1
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
             echo Run docker buildx build for $directory
@@ -257,13 +253,17 @@ jobs:
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
             $directory 
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            trivy image --cache-dir ~/.cache/trivy --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            export TRIVY_DB_REPOSITORY=${{ secrets.TRIVY_DB_REPOSITORY }}
+            export TRIVY_JAVA_DB_REPOSITORY=${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
+            docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+            trivy image --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
             cat scan-results.md >> $GITHUB_STEP_SUMMARY
           done
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-        continue-on-error: true
+          TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
+          TRIVY_DB_REPOSITORY: ${{ secrets.TRIVY_DB_REPOSITORY }}
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
       - name: Scan Docker images and fail CI in case it detects any vulnerabilities
@@ -277,11 +277,12 @@ jobs:
               image=$directory
             fi
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            trivy image --cache-dir ~/.cache/trivy --format template --template @template.tpl --exit-code 1 --no-progress --ignore-unfixed --vuln-type os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --format template --template @template.tpl --exit-code 1 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
           done
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-        continue-on-error: true
+          TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
+          TRIVY_DB_REPOSITORY: ${{ secrets.TRIVY_DB_REPOSITORY }}
 
   push:
     outputs:
@@ -291,7 +292,7 @@ jobs:
       || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'master'))
       || github.event_name == 'release'
     name: Push artifacts
-    needs: [ build, scan]
+    needs: [ build, scan ]
     runs-on: ubuntu-latest
     steps:
       - name: jobName
