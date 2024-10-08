@@ -462,7 +462,9 @@ jobs:
         with:
           github-token: ${{ secrets.ORGANIZATION_TOKEN }}
           script: |
-            const issueTitle = 'Scheduled Build Fail';
+            const repoName = '${{ github.repository }}';
+            const repoShortName = repoName.split('/')[1];
+            const issueTitle = `Scheduled Build Fail (${repoShortName})`;
             const issueBody = `Link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
             
             // Set the owner and repo to exberry-io/docs
@@ -488,9 +490,9 @@ jobs:
                 body: issueBody,
                 labels: ['Bug'],
               });
-              console.log('Created a new issue for the failed scheduled build.');
+              console.log('New issue is created for the failed scheduled build');
             } else {
-              console.log('An open issue for the failed scheduled build already exists.');
+              console.log('Open issue for the failed scheduled build already exists');
             }
 
   close_issue:
@@ -504,8 +506,10 @@ jobs:
         with:
           github-token: ${{ secrets.ORGANIZATION_TOKEN }}
           script: |
-            const issueTitle = 'Scheduled Build Fail';
-            const closeComment = `Closed due to success build`;
+            const repoName = '${{ github.repository }}';
+            const repoShortName = repoName.split('/')[1];
+            const issueTitle = `Scheduled Build Fail (${repoShortName})`;
+            const closeComment = `Closed due to success build: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
 
             // Set the owner and repo to exberry-io/docs
             const owner = 'exberry-io';
@@ -521,6 +525,7 @@ jobs:
             if (issues.length === 0) {
               console.log('No open issues to close');
             } else {
+              let issueClosed = false;
               for (const issue of issues) {
                 if (issue.title === issueTitle) {
                   // Add a comment to the issue
@@ -538,6 +543,11 @@ jobs:
                     state: 'closed',
                   });
                   console.log(`Closed issue #${issue.number}`);
+                  issueClosed = true;
                 }
+              }
+            
+              if (!issueClosed) {
+                console.log('No issues found to close');
               }
             }
