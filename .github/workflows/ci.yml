@@ -450,7 +450,6 @@ jobs:
           echo Remove git tag
           git push origin :refs/tags/${{ github.event.release.tag_name }}
 
-
   notify_failure:
     name: Create Issue on Failure
     if: ${{ failure() && github.event_name == 'schedule' }}
