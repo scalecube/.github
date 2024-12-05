@@ -295,6 +295,9 @@ jobs:
     name: Push artifacts
     needs: [ build, scan ]
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     steps:
       - name: jobName
         run: echo '# Push 🚀' >> $GITHUB_STEP_SUMMARY
