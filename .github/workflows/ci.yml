@@ -77,8 +77,8 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'zulu'
+          java-version: '21'
+          distribution: 'temurin'
           cache: 'maven'
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
@@ -125,8 +125,8 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'zulu'
+          java-version: '21'
+          distribution: 'temurin'
           cache: 'maven'
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
@@ -192,8 +192,8 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'zulu'
+          java-version: '21'
+          distribution: 'temurin'
           cache: 'maven'
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
@@ -308,8 +308,8 @@ jobs:
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
-          java-version: '17'
-          distribution: 'zulu'
+          java-version: '21'
+          distribution: 'temurin'
           cache: 'maven'
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
