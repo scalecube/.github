@@ -222,6 +222,13 @@ jobs:
       - name: Prepare TEST_IMAGE_TAG env
         run: |
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
+      
+      - name: Copy target directory
+        run: cp -r target/ jmeter-base
+  
+      - name: Copy build.settings.xml
+        run: cp build.settings.xml jmeter-base/settings.xml
+        
       - name: Make Trivy template file with heredoc
         run: |
           cat << 'EOF' > template.tpl 
