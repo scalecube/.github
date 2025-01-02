@@ -148,6 +148,10 @@ jobs:
       - name: Prepare TEST_IMAGE_TAG env
         run: |
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
+
+      - name: Move target directory
+        run: cp target/ jmeter-base
+
       - name: Build Docker images
         run: |
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
