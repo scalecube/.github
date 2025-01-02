@@ -149,8 +149,11 @@ jobs:
         run: |
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
 
-      - name: Move target directory
+      - name: Copy target directory
         run: cp target/ jmeter-base
+
+      - name: Copy build.settings.xml
+        run: cp build.settings.xml jmeter-base/settings.xml
 
       - name: Build Docker images
         run: |
