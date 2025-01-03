@@ -32,6 +32,16 @@ on:
         description: |
           Fail pipeline if CVEs are identified.
           Default is '0', possible values '0' or '1'
+      debian-packages:
+        type: boolean
+        required: false
+        default: true
+        description: Include/Don't include Build and Push Debian Packages
+      jmeter:
+        type: boolean
+        required: false
+        default: false
+        description: Need this just for Jmeter build
     secrets:
       ORGANIZATION_TOKEN:
         required: true
@@ -143,6 +153,15 @@ jobs:
       - name: Prepare TEST_IMAGE_TAG env
         run: |
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
+
+      - name: Copy target directory
+        if: always() && inputs.jmeter == true
+        run: cp -r target/ jmeter-base
+
+      - name: Copy build.settings.xml
+        if: always() && inputs.jmeter == true
+        run: cp build.settings.xml jmeter-base/settings.xml
+
       - name: Build Docker images
         run: |
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
@@ -210,6 +229,15 @@ jobs:
       - name: Prepare TEST_IMAGE_TAG env
         run: |
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
+      
+      - name: Copy target directory
+        if: always() && inputs.jmeter == true
+        run: cp -r target/ jmeter-base
+  
+      - name: Copy build.settings.xml
+        if: always() && inputs.jmeter == true
+        run: cp build.settings.xml jmeter-base/settings.xml
+
       - name: Make Trivy template file with heredoc
         run: |
           cat << 'EOF' > template.tpl 
@@ -323,6 +351,15 @@ jobs:
         uses: docker/setup-buildx-action@v3
       - name: Login to Docker
         run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+
+      - name: Copy target directory
+        if: always() && inputs.jmeter == true
+        run: cp -r target/ jmeter-base
+
+      - name: Copy build.settings.xml
+        if: always() && inputs.jmeter == true
+        run: cp build.settings.xml jmeter-base/settings.xml
+
       - name: Push Docker images
         id: pushDockerImages
         run: |
@@ -390,17 +427,20 @@ jobs:
           done
 
       - name: Authenticate to Google Cloud
+        if: always() && inputs.debian-packages == true
         uses: 'google-github-actions/auth@v2'
         with:
           project_id: '${{ vars.GCP_DEB_REGISTRY_PROJECT }}'
           credentials_json: '${{ secrets.GCP_DEB_REGISTRY_CREDENTIALS}}'
 
       - name: 'Set up Cloud SDK'
+        if: always() && inputs.debian-packages == true
         uses: 'google-github-actions/setup-gcloud@v2'
         with:
           version: '>= 363.0.0'
 
       - name: Build .deb packages and Push to Google Artifactory DEB Registry
+        if: always() && inputs.debian-packages == true
         run: |
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
