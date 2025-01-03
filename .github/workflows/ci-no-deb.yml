@@ -37,6 +37,11 @@ on:
         required: false
         default: true
         description: Include/Don't include Build and Push Debian Packages
+      jmeter:
+        type: boolean
+        required: false
+        default: false
+        description: Need this just for Jmeter build
     secrets:
       ORGANIZATION_TOKEN:
         required: true
@@ -150,9 +155,11 @@ jobs:
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
 
       - name: Copy target directory
+        if: always() && inputs.jmeter == true
         run: cp -r target/ jmeter-base
 
       - name: Copy build.settings.xml
+        if: always() && inputs.jmeter == true
         run: cp build.settings.xml jmeter-base/settings.xml
 
       - name: Build Docker images
@@ -224,9 +231,11 @@ jobs:
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
       
       - name: Copy target directory
+        if: always() && inputs.jmeter == true
         run: cp -r target/ jmeter-base
   
       - name: Copy build.settings.xml
+        if: always() && inputs.jmeter == true
         run: cp build.settings.xml jmeter-base/settings.xml
 
       - name: Make Trivy template file with heredoc
@@ -344,9 +353,11 @@ jobs:
         run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
 
       - name: Copy target directory
+        if: always() && inputs.jmeter == true
         run: cp -r target/ jmeter-base
-        
+
       - name: Copy build.settings.xml
+        if: always() && inputs.jmeter == true
         run: cp build.settings.xml jmeter-base/settings.xml
 
       - name: Push Docker images
