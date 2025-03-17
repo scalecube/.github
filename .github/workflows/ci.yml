@@ -465,21 +465,21 @@ jobs:
             const repoShortName = repoName.split('/')[1];
             const issueTitle = `Scheduled Build Fail (${repoShortName})`;
             const issueBody = `Link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
-            
-            // Set the owner and repo to exberry-io/docs
-            const owner = 'exberry-io';
-            const repo = 'docs';
-            
-            // Check if an open issue with the same title and label exists
+
+            // Set the owner and repo to open/close GitHub issues
+            const owner = ${{ vars.GH_ORGANIZATION }};
+            const repo = ${{ vars.GH_ISSUES_REPO }};
+
+            // Check if an open issue with the same title and type exists
             const { data: issues } = await github.rest.issues.listForRepo({
               owner,
               repo,
               state: 'open',
-              labels: ['Bug'],
+              type: 'Bug'
             });
-            
+
             const issueExists = issues.some(issue => issue.title === issueTitle);
-            
+
             if (!issueExists) {
               // Create a new issue
               await github.rest.issues.create({
@@ -487,7 +487,7 @@ jobs:
                 repo,
                 title: issueTitle,
                 body: issueBody,
-                labels: ['Bug'],
+                type: 'Bug'
               });
               console.log('New issue is created for the failed scheduled build');
             } else {
@@ -510,15 +510,15 @@ jobs:
             const issueTitle = `Scheduled Build Fail (${repoShortName})`;
             const closeComment = `Closed due to success build: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
 
-            // Set the owner and repo to exberry-io/docs
-            const owner = 'exberry-io';
-            const repo = 'docs';
+            // Set the owner and repo to open/close GitHub issues
+            const owner = ${{ vars.GH_ORGANIZATION }};
+            const repo = ${{ vars.GH_ISSUES_REPO }};
 
             const { data: issues } = await github.rest.issues.listForRepo({
               owner,
               repo,
               state: 'open',
-              labels: ['Bug'],
+              type: 'Bug'
             });
 
             if (issues.length === 0) {
