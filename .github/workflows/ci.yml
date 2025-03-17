@@ -467,8 +467,8 @@ jobs:
             const issueBody = `Link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
 
             // Set the owner and repo to open/close GitHub issues
-            const owner = ${{ vars.GH_ORGANIZATION }};
-            const repo = ${{ vars.GH_ISSUES_REPO }};
+            const owner = '${{ vars.GH_ORGANIZATION }}';
+            const repo = '${{ vars.GH_ISSUES_REPO }}';
 
             // Check if an open issue with the same title and type exists
             const { data: issues } = await github.rest.issues.listForRepo({
@@ -511,8 +511,8 @@ jobs:
             const closeComment = `Closed due to success build: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
 
             // Set the owner and repo to open/close GitHub issues
-            const owner = ${{ vars.GH_ORGANIZATION }};
-            const repo = ${{ vars.GH_ISSUES_REPO }};
+            const owner = '${{ vars.GH_ORGANIZATION }}';
+            const repo = '${{ vars.GH_ISSUES_REPO }}';
 
             const { data: issues } = await github.rest.issues.listForRepo({
               owner,
