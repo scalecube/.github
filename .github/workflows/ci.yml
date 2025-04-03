@@ -314,9 +314,6 @@ jobs:
           fi
           while read -r CVE; do
             # Check if an issue already exists for this CVE
-            echo curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                               -H "Accept: application/vnd.github.v3+json" \
-                               "https://api.github.com/repos/$TARGET_REPO/issues?state=open&labels=Trivy"
             RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                                -H "Accept: application/vnd.github.v3+json" \
                                "https://api.github.com/repos/$TARGET_REPO/issues?state=open&labels=Trivy")
@@ -329,15 +326,19 @@ jobs:
               EXISTING_ISSUE=$(echo "$RESPONSE" | jq -r --arg cve "$CVE" '.[] | select(.title | contains($cve)) | .title')
             fi
 
+            # Extract the severity (High or Critical)
+            SEVERITY=$(jq -r --arg cve "$CVE" '.Results[].Vulnerabilities[]? | select(.VulnerabilityID == $cve) | .Severity' scan-results.json)
+            SEVERITY=${SEVERITY:-"Unknown"}
+
             if [ -z "$EXISTING_ISSUE" ]; then
-              echo "Creating issue for $CVE"
-              
-              BODY="### Trivy Security Scan Findings\n\n- **CVE**: $CVE\n- **Severity**: HIGH or CRITICAL\n\n[View full scan report (Markdown)](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts)\n\n[View full scan JSON output](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts)"
-              
+              echo "Creating issue for $CVE with severity $SEVERITY in $TARGET_REPO"
+
+              BODY="### Trivy Security Scan Findings\n\n- **CVE**: $CVE\n- **Severity**: $SEVERITY\n\n[View CVE details](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts)"
+
               curl -X POST -H "Authorization: token $GITHUB_TOKEN" \
                    -H "Accept: application/vnd.github.v3+json" \
-                   https://api.github.com/repos/$TARGET_REPO/issues \
-                   -d "{\"title\": \"[Security] $CVE - Trivy Scan\", \"body\": \"$BODY\", \"labels\": [\"Trivy\", \"Security\"]}"
+                   "https://api.github.com/repos/$TARGET_REPO/issues" \
+                   -d "{\"title\": \"[Trivy] $CVE - Severity: $SEVERITY\", \"body\": \"$BODY\", \"labels\": [\"Trivy\", \"Security\", \"$SEVERITY\"]}"
             else
               echo "Issue already exists for $CVE: $EXISTING_ISSUE"
             fi
