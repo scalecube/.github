@@ -333,7 +333,7 @@ jobs:
             if [ -z "$EXISTING_ISSUE" ]; then
               echo "Creating issue for $CVE with severity $SEVERITY in $TARGET_REPO"
 
-              BODY="### Trivy Security Scan Findings\n\n- **CVE**: $CVE\n- **Severity**: $SEVERITY\n\n[View CVE details](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts)"
+              BODY="### Trivy Security Scan Findings\n\n- **CVE**: $CVE\n- **Severity**: $SEVERITY\n\n[View CVE details](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
 
               curl -X POST -H "Authorization: token $GITHUB_TOKEN" \
                    -H "Accept: application/vnd.github.v3+json" \
