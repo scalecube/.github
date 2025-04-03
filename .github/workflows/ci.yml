@@ -240,8 +240,8 @@ jobs:
           echo "Install Trivy scanner for Docker Image Security scanning"
           sudo apt-get update
           sudo apt-get install -y wget > /dev/null 2>&1
-          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.57.1/trivy_0.57.1_Linux-64bit.deb
-          sudo dpkg -i trivy_0.57.1_Linux-64bit.deb > /dev/null 2>&1
+          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.61.0/trivy_0.61.0_Linux-64bit.deb
+          sudo dpkg -i trivy_0.61.0_Linux-64bit.deb > /dev/null 2>&1
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
             echo Run docker buildx build for $directory
@@ -304,7 +304,7 @@ jobs:
             # Check if an issue already exists for this CVE
             EXISTING_ISSUE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
                                    -H "Accept: application/vnd.github.v3+json" \
-                                   "https://api.github.com/repos/${GITHUB_REPOSITORY}/docs/issues?state=open&labels=Trivy" | jq -r --arg cve "$CVE" '.[] | select(.title | contains($cve)) | .title')
+                                   "https://api.github.com/repos/${{ github.repository }}/docs/issues?state=open&labels=Trivy" | jq -r --arg cve "$CVE" '.[] | select(.title | contains($cve)) | .title')
 
             if [ -z "$EXISTING_ISSUE" ]; then
               echo "Creating issue for $CVE"
@@ -313,7 +313,7 @@ jobs:
               
               curl -X POST -H "Authorization: token $GITHUB_TOKEN" \
                    -H "Accept: application/vnd.github.v3+json" \
-                   https://api.github.com/repos/${GITHUB_REPOSITORY}/docs/issues \
+                   https://api.github.com/repos/${{ github.repository }}/docs/issues \
                    -d "{\"title\": \"[Security] $CVE - Trivy Scan\", \"body\": \"$BODY\", \"labels\": [\"Trivy\", \"Security\"]}"
             else
               echo "Issue already exists for $CVE: $EXISTING_ISSUE"
