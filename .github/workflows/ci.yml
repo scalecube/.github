@@ -32,6 +32,12 @@ on:
         description: |
           Fail pipeline if CVEs are identified.
           Default is '0', possible values '0' or '1'
+      cve-issue-repo:
+        type: string
+        required: false
+        default: ${{ github.repository }}
+        description: |
+          "Repository where CVE issues will be created (e.g., org-name/security-reports)"
     secrets:
       ORGANIZATION_TOKEN:
         required: true
@@ -299,12 +305,26 @@ jobs:
         if: env.found_vulns == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+          TARGET_REPO: ${{ inputs.target_repo || github.repository }}
         run: |
+          if [[ $directory == '.' ]]; then
+            image=${{ github.event.repository.name }}
+          else
+            image=$directory
+          fi
           while read -r CVE; do
             # Check if an issue already exists for this CVE
-            EXISTING_ISSUE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                                   -H "Accept: application/vnd.github.v3+json" \
-                                   "https://api.github.com/repos/${{ github.repository }}/docs/issues?state=open&labels=Trivy" | jq -r --arg cve "$CVE" '.[] | select(.title | contains($cve)) | .title')
+            RESPONSE=$(curl -s -H "Authorization: token $GH_TOKEN" \
+                               -H "Accept: application/vnd.github.v3+json" \
+                               "https://api.github.com/repos/$TARGET_REPO/issues?state=open&labels=Trivy")
+
+            # Handle API errors or empty responses
+            if [ -z "$RESPONSE" ] || [ "$RESPONSE" == "[]" ]; then
+              echo "No existing issues found for $CVE (GitHub API returned empty response)"
+              EXISTING_ISSUE=""
+            else
+              EXISTING_ISSUE=$(echo "$RESPONSE" | jq -r --arg cve "$CVE" '.[] | select(.title | contains($cve)) | .title')
+            fi
 
             if [ -z "$EXISTING_ISSUE" ]; then
               echo "Creating issue for $CVE"
@@ -313,7 +333,7 @@ jobs:
               
               curl -X POST -H "Authorization: token $GITHUB_TOKEN" \
                    -H "Accept: application/vnd.github.v3+json" \
-                   https://api.github.com/repos/${{ github.repository }}/docs/issues \
+                   https://api.github.com/repos/$TARGET_REPO/issues \
                    -d "{\"title\": \"[Security] $CVE - Trivy Scan\", \"body\": \"$BODY\", \"labels\": [\"Trivy\", \"Security\"]}"
             else
               echo "Issue already exists for $CVE: $EXISTING_ISSUE"
