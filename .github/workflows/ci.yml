@@ -305,7 +305,7 @@ jobs:
         if: env.found_vulns == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-          TARGET_REPO: ${{ inputs.target_repo || github.repository }}
+          TARGET_REPO: ${{ inputs.cve-issue-repo || github.repository }}
         run: |
           if [[ $directory == '.' ]]; then
             image=${{ github.event.repository.name }}
