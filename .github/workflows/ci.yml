@@ -334,7 +334,7 @@ jobs:
             fi
 
             # Extract the severity (High or Critical)
-            SEVERITY=$(jq -r --arg cve "$CVE" '.Results[].Vulnerabilities[]? | select(.VulnerabilityID == $cve) | .Severity' scan-results.json)
+            SEVERITY=$(jq -r --arg cve "$CVE" '.Results[].Vulnerabilities[]? | select(.VulnerabilityID == $cve) | .Severity' scan-results.json | head -n 1)
             SEVERITY=${SEVERITY:-"Unknown"}
 
             if [ -z "$EXISTING_ISSUE" ]; then
