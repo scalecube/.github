@@ -32,12 +32,7 @@ on:
         description: |
           Fail pipeline if CVEs are identified.
           Default is '0', possible values '0' or '1'
-      cve-issue-repo:
-        type: string
-        required: false
-        default: ${{ github.repository }}
-        description: |
-          "Repository where CVE issues will be created (e.g., org-name/security-reports)"
+
     secrets:
       ORGANIZATION_TOKEN:
         required: true
