@@ -319,8 +319,10 @@ jobs:
               }
             }
 
-            // Get configurable labels (default to empty array if not set)
-            const customLabels = process.env.GH_ISSUE_LABELS ? process.env.GH_ISSUE_LABELS.split(',').map(label => label.trim()) : [];
+            // Get configurable labels or default to ['Security', 'Trivy']
+            const customLabels = process.env.GH_ISSUE_LABELS 
+              ? process.env.GH_ISSUE_LABELS.split(',').map(label => label.trim()) 
+              : ['Security', 'Trivy'];
 
             // Process vulnerabilities
             for (const [cve, vuln] of vulnerabilities) {
