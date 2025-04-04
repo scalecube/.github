@@ -305,7 +305,7 @@ jobs:
             const repoName = process.env.GH_ISSUES_REPO || context.repo.repo;
 
             // Read the Trivy scan results
-            const data = JSON.parse(fs.readFileSync('trivy-results.json', 'utf8'));
+            const data = JSON.parse(fs.readFileSync('scan-results.json', 'utf8'));
 
             // Extract vulnerabilities and prevent duplicates
             const vulnerabilities = new Map();
