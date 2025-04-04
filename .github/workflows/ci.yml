@@ -285,17 +285,6 @@ jobs:
             scan-results.json
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
-      - name: Extract CVE IDs
-        id: extract_cves
-        run: |
-          # Extract unique CVE IDs from the JSON output
-          jq -r '.Results[].Vulnerabilities[]?.VulnerabilityID' scan-results.json | sort -u > cve-list.txt
-          
-          if [ -s cve-list.txt ]; then
-            echo "found_vulns=true" >> $GITHUB_ENV
-          else
-            echo "found_vulns=false" >> $GITHUB_ENV
-          fi
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
@@ -308,48 +297,65 @@ jobs:
             scan-results.md
             scan-results.json
 
-      - name: Check for existing issues for each CVE
-        if: env.found_vulns == 'true'
+      - name: Create Issues for CVEs
+        uses: actions/github-script@v7
         env:
-          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-          TARGET_REPO: ${{ inputs.cve-issue-repo || github.repository }}
-        run: |
-          if [[ $directory == '.' ]]; then
-            image=${{ github.event.repository.name }}
-          else
-            image=$directory
-          fi
-          while read -r CVE; do
-            # Check if an issue already exists for this CVE
-            RESPONSE=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
-                               -H "Accept: application/vnd.github.v3+json" \
-                               "https://api.github.com/repos/$TARGET_REPO/issues?state=open&labels=Trivy")
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ISSUE_LABELS: ${{ vars.GH_ISSUE_LABELS }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const repoOwner = process.env.GH_ORGANIZATION || context.repo.owner;
+            const repoName = process.env.GH_ISSUES_REPO || context.repo.repo;
 
-            # Handle API errors or empty responses
-            if [ -z "$RESPONSE" ] || [ "$RESPONSE" == "[]" ]; then
-              echo "No existing issues found for $CVE (GitHub API returned empty response)"
-              EXISTING_ISSUE=""
-            else
-              EXISTING_ISSUE=$(echo "$RESPONSE" | jq -r --arg cve "$CVE" '.[] | select(.title | contains($cve)) | .title')
-            fi
+            // Read the Trivy scan results
+            const data = JSON.parse(fs.readFileSync('trivy-results.json', 'utf8'));
 
-            # Extract the severity (High or Critical)
-            SEVERITY=$(jq -r --arg cve "$CVE" '.Results[].Vulnerabilities[]? | select(.VulnerabilityID == $cve) | .Severity' scan-results.json | head -n 1)
-            SEVERITY=${SEVERITY:-"Unknown"}
+            // Extract vulnerabilities and prevent duplicates
+            const vulnerabilities = new Map();
+            for (const result of data.Results || []) {
+              for (const vuln of result.Vulnerabilities || []) {
+                if (vuln.Severity === 'HIGH' || vuln.Severity === 'CRITICAL') {
+                  if (!vulnerabilities.has(vuln.VulnerabilityID)) {
+                    vulnerabilities.set(vuln.VulnerabilityID, vuln);
+                  }
+                }
+              }
+            }
 
-            if [ -z "$EXISTING_ISSUE" ]; then
-              echo "Creating issue for $CVE with severity $SEVERITY in $TARGET_REPO"
+            // Get configurable labels (default to empty array if not set)
+            const customLabels = process.env.GH_ISSUE_LABELS ? process.env.GH_ISSUE_LABELS.split(',').map(label => label.trim()) : [];
 
-              BODY="### Trivy Security Scan Findings in ${{ github.repository }}\n\n- **CVE**: $CVE\n- **Severity**: $SEVERITY\n\n* [CI Run Summary](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+            // Process vulnerabilities
+            for (const [cve, vuln] of vulnerabilities) {
+              // Check if an issue already exists
+              const existingIssues = await github.rest.issues.listForRepo({
+                owner: repoOwner,
+                repo: repoName,
+                state: "open"
+              });
 
-              curl -X POST -H "Authorization: token $GITHUB_TOKEN" \
-                   -H "Accept: application/vnd.github.v3+json" \
-                   "https://api.github.com/repos/$TARGET_REPO/issues" \
-                   -d "{\"title\": \"[Trivy] $CVE - Severity: $SEVERITY\", \"body\": \"$BODY\", \"labels\": [\"Trivy\", \"Security\", \"$SEVERITY\"]}"
-            else
-              echo "Issue already exists for $CVE: $EXISTING_ISSUE"
-            fi
-          done < cve-list.txt
+              const issueExists = existingIssues.data.some(issue => issue.title.includes(cve));
+              if (!issueExists) {
+
+                // Ensure severity label is always included
+                const labels = [vuln.Severity, ...customLabels];
+                
+                // Create a new issue
+                const issueTitle = `[${vuln.Severity}] Security Issue - ${cve}`;
+                await github.rest.issues.create({
+                  owner: repoOwner,
+                  repo: repoName,
+                  title: issueTitle,
+                  body: `### Trivy Security Scan Findings in \`${repoName}\`\n\n- **CVE**: ${cve}\n- **Severity**: ${vuln.Severity}\n\n[CVE Details](https://nvd.nist.gov/vuln/detail/${cve})\n\n[View scan results](https://github.com/${repoOwner}/${repoName}/actions/runs/${{ github.run_id }})`,
+                  labels: labels
+                });
+                console.log(`Created issue for ${cve} with labels: ${labels.join(', ')}`);
+              } else {
+                console.log(`Issue for ${cve} already exists.`);
+              }
+            }
   push:
     outputs:
       images: ${{ steps.pushDockerImages.outputs.images }}
