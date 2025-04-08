@@ -32,6 +32,7 @@ on:
         description: |
           Fail pipeline if CVEs are identified.
           Default is '0', possible values '0' or '1'
+
     secrets:
       ORGANIZATION_TOKEN:
         required: true
@@ -240,8 +241,8 @@ jobs:
           echo "Install Trivy scanner for Docker Image Security scanning"
           sudo apt-get update
           sudo apt-get install -y wget > /dev/null 2>&1
-          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.57.1/trivy_0.57.1_Linux-64bit.deb
-          sudo dpkg -i trivy_0.57.1_Linux-64bit.deb > /dev/null 2>&1
+          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.61.0/trivy_0.61.0_Linux-64bit.deb
+          sudo dpkg -i trivy_0.61.0_Linux-64bit.deb > /dev/null 2>&1
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
             echo Run docker buildx build for $directory
@@ -257,7 +258,12 @@ jobs:
             export TRIVY_DB_REPOSITORY=${{ secrets.TRIVY_DB_REPOSITORY }}
             export TRIVY_JAVA_DB_REPOSITORY=${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
             docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+
+            # Generate JSON output for CVE extraction
+            trivy image --format json --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output scan-results.json --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            # Generate Markdown output for human-readable report
             trivy image --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
             cat scan-results.md >> $GITHUB_STEP_SUMMARY
           done
@@ -265,26 +271,88 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
           TRIVY_DB_REPOSITORY: ${{ secrets.TRIVY_DB_REPOSITORY }}
+      - name: Upload scan results as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-results-${{ github.run_id }}
+          path: |
+            scan-results.md
+            scan-results.json
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
-      - name: Scan Docker images and fail CI in case it detects any vulnerabilities
-        run: |
-          for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
-          do
-            echo Run docker buildx build for $directory
-            if [[ $directory == '.' ]]; then
-              image=${{ github.event.repository.name }}
-            else
-              image=$directory
-            fi
-            echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            trivy image --format template --template @template.tpl --exit-code 1 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
-          done
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
           TRIVY_DB_REPOSITORY: ${{ secrets.TRIVY_DB_REPOSITORY }}
+      - name: Upload scan results as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-results
+          path: |
+            scan-results.md
+            scan-results.json
 
+      - name: Create Issues for CVEs
+        uses: actions/github-script@v7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_ISSUE_LABELS: ${{ vars.GH_ISSUE_LABELS }}
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const repoOwner = process.env.GH_ORGANIZATION || context.repo.owner;
+            const repoName = process.env.GH_ISSUES_REPO || context.repo.repo;
+
+            // Read the Trivy scan results
+            const data = JSON.parse(fs.readFileSync('scan-results.json', 'utf8'));
+
+            // Extract vulnerabilities and prevent duplicates
+            const vulnerabilities = new Map();
+            for (const result of data.Results || []) {
+              for (const vuln of result.Vulnerabilities || []) {
+                if (vuln.Severity === 'HIGH' || vuln.Severity === 'CRITICAL') {
+                  if (!vulnerabilities.has(vuln.VulnerabilityID)) {
+                    vulnerabilities.set(vuln.VulnerabilityID, vuln);
+                  }
+                }
+              }
+            }
+
+            // Get configurable labels or default to ['Security', 'Trivy']
+            const customLabels = process.env.GH_ISSUE_LABELS 
+              ? process.env.GH_ISSUE_LABELS.split(',').map(label => label.trim()) 
+              : ['Security', 'Trivy'];
+
+            // Process vulnerabilities
+            for (const [cve, vuln] of vulnerabilities) {
+              // Check if an issue already exists
+              const existingIssues = await github.rest.issues.listForRepo({
+                owner: repoOwner,
+                repo: repoName,
+                state: "open"
+              });
+
+              const issueExists = existingIssues.data.some(issue => issue.title.includes(cve));
+              if (!issueExists) {
+
+                // Ensure severity label is always included
+                const labels = [vuln.Severity, ...customLabels];
+                
+                // Create a new issue
+                const issueTitle = `[${vuln.Severity}] Security Issue - ${cve}`;
+                await github.rest.issues.create({
+                  owner: repoOwner,
+                  repo: repoName,
+                  title: issueTitle,
+                  body: `### Trivy Security Scan Findings in \`${repoName}\`\n\n- **CVE**: ${cve}\n- **Severity**: ${vuln.Severity}\n\n[CVE Details](https://nvd.nist.gov/vuln/detail/${cve})\n\n[View scan results](https://github.com/${repoOwner}/${repoName}/actions/runs/${{ github.run_id }})`,
+                  labels: labels
+                });
+                console.log(`Created issue for ${cve} with labels: ${labels.join(', ')}`);
+              } else {
+                console.log(`Issue for ${cve} already exists.`);
+              }
+            }
   push:
     outputs:
       images: ${{ steps.pushDockerImages.outputs.images }}
