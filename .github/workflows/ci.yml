@@ -347,7 +347,7 @@ jobs:
                   owner: repoOwner,
                   repo: repoName,
                   title: issueTitle,
-                  body: `### Trivy Security Scan Findings in \`${repoName}\`\n\n- **CVE**: ${cve}\n- **Severity**: ${vuln.Severity}\n\n[CVE Details](https://nvd.nist.gov/vuln/detail/${cve})\n\n[View scan results](https://github.com/${repoOwner}/${repoName}/actions/runs/${{ github.run_id }})`,
+                  body: `### Trivy Security Scan Findings in \`${context.repo.repo}\`\n\n- **CVE**: ${cve}\n- **Severity**: ${vuln.Severity}\n\n[CVE Details](https://nvd.nist.gov/vuln/detail/${cve})\n\n[View scan results](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }})`,
                   labels: labels
                 });
                 console.log(`Created issue for ${cve} with labels: ${labels.join(', ')}`);
