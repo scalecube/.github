@@ -295,12 +295,12 @@ jobs:
       - name: Create Issues for CVEs
         uses: actions/github-script@v7
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          ACTIVE_TOKEN: ${{ secrets.ORGANIZATION_TOKEN || secrets.GITHUB_TOKEN }}
           GH_ISSUE_LABELS: ${{ vars.GH_ISSUE_LABELS }}
           GH_ORGANIZATION: ${{ vars.GH_ORGANIZATION || github.repository_owner }}
           GH_ISSUES_REPO: ${{ vars.GH_ISSUES_REPO || github.event.repository.name  }}
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ env.ACTIVE_TOKEN }}
           script: |
             const fs = require('fs');
             const repoOwner = process.env.GH_ORGANIZATION;
