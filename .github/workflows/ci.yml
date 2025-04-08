@@ -297,12 +297,14 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_ISSUE_LABELS: ${{ vars.GH_ISSUE_LABELS }}
+          GH_ORGANIZATION: ${{ vars.GH_ORGANIZATION || github.repository_owner }}
+          GH_ISSUES_REPO: ${{ vars.GH_ISSUES_REPO || github.event.repository.name  }}
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const repoOwner = ${{ vars.GH_ORGANIZATION }} || context.repo.owner;
-            const repoName = ${{ vars.GH_ISSUES_REPO }} || context.repo.repo;
+            const repoOwner = process.env.GH_ORGANIZATION;
+            const repoName = process.env.GH_ISSUES_REPO;
 
             // Read the Trivy scan results
             const data = JSON.parse(fs.readFileSync('scan-results.json', 'utf8'));
