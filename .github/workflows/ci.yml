@@ -301,8 +301,8 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const fs = require('fs');
-            const repoOwner = process.env.GH_ORGANIZATION || context.repo.owner;
-            const repoName = process.env.GH_ISSUES_REPO || context.repo.repo;
+            const repoOwner = ${{ vars.GH_ORGANIZATION }} || context.repo.owner;
+            const repoName = ${{ vars.GH_ISSUES_REPO }} || context.repo.repo;
 
             // Read the Trivy scan results
             const data = JSON.parse(fs.readFileSync('scan-results.json', 'utf8'));
