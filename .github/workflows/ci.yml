@@ -176,13 +176,12 @@ jobs:
           files=$(find . -path '*/target/site/jacoco/jacoco.xml' | paste -sd "," -)
           echo "files=$files" >> $GITHUB_OUTPUT
       - name: Upload coverage to Codacy
+        if: ${{ steps.find-coverage.outputs.files != '' }}
         uses: codacy/codacy-coverage-reporter-action@v1.3.0
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
           coverage-reports: ${{ steps.find-coverage.outputs.files }}
           language: Java
-          coverage-tool: jacoco
-          continue-on-error: true
 
   scan:
     name: Scan with Trivy
