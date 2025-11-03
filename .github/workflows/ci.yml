@@ -394,7 +394,7 @@ jobs:
         run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-      - name: Deploy JARs
+      - name: Deploy jars
         run: mvn deploy -DskipTests -Dgpg.skip=true -Drevision=${{ env.VERSION }} -B -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
