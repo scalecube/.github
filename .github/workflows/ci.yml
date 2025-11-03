@@ -401,7 +401,6 @@ jobs:
           else
             REVISION=${VERSION}-SNAPSHOT
           fi
-          echo "############ $REVISION"
           mvn deploy -DskipTests -Dgpg.skip=true -Drevision=$REVISION -B -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
