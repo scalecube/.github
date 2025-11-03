@@ -395,9 +395,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
       - name: Deploy jars
-        run: mvn deploy -DskipTests -Dgpg.skip=true -Drevision=${{ env.VERSION }} -B -V -U
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+            echo "REVISION=${VERSION}" >> $GITHUB_ENV
+          else
+            echo "REVISION=${VERSION}-SNAPSHOT" >> $GITHUB_ENV
+          fi          
+          mvn deploy -DskipTests -Dgpg.skip=true -Drevision=${REVISION} -B -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
       - name: Set up Docker Buildx
