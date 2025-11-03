@@ -347,7 +347,7 @@ jobs:
 
                 // Ensure severity label is always included
                 const labels = [vuln.Severity, ...customLabels];
-                
+            
                 // Create a new issue
                 const issueTitle = `[${vuln.Severity}] Security Issue - ${cve}`;
                 await github.rest.issues.create({
@@ -400,7 +400,8 @@ jobs:
             echo REVISION=${VERSION} >> $GITHUB_ENV
           else
             echo REVISION=${VERSION}-SNAPSHOT >> $GITHUB_ENV
-          fi          
+          fi
+          echo "############ ${REVISION}"
           mvn deploy -DskipTests -Dgpg.skip=true -Drevision=${REVISION} -B -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
