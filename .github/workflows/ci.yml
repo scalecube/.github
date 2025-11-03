@@ -397,9 +397,9 @@ jobs:
       - name: Deploy jars
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
-            echo "REVISION=${VERSION}" >> $GITHUB_ENV
+            echo REVISION=${VERSION} >> $GITHUB_ENV
           else
-            echo "REVISION=${VERSION}-SNAPSHOT" >> $GITHUB_ENV
+            echo REVISION=${VERSION}-SNAPSHOT >> $GITHUB_ENV
           fi          
           mvn deploy -DskipTests -Dgpg.skip=true -Drevision=${REVISION} -B -V -U
         env:
