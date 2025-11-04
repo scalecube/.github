@@ -202,28 +202,18 @@ jobs:
             docker buildx build --load --platform ${{ matrix.arch }} \
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
             $directory
-          done
 
-      - name: Save Docker images
-        id: save
-        run: |
-          IMAGES=""
-          for img in $(docker images --format '{{.Repository}}:{{.Tag}}' | grep "${GITHUB_REPOSITORY}.*${{ env.TEST_IMAGE_TAG }}"); do
-            safe_name=$(echo "$img" | tr '/' '-' | tr ':' '-')
-            docker save "$img" -o "docker-image-${safe_name}.tar"
-            IMAGES="$IMAGES docker-image-${safe_name}.tar"
+            ARTIFACT="docker-image-$image-${{ github.run_id }}.tar"
+            docker save ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} -o "$ARTIFACT"
+            echo "Uploading $ARTIFACT"
+            gh workflow run-artifacts upload \
+              --name "docker-image-$image-${{ github.run_id }}" \
+              --path "$ARTIFACT" \
+              --retention-days 1            
           done
-          echo "saved-images=$IMAGES" >> $GITHUB_OUTPUT
 
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
-
-      - name: Upload Docker images
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-images-${{ github.job }}-${{ github.run_id }}
-          path: docker-image-*.tar
-          retention-days: 1
 
       - name: Maven Verify
         if: inputs.tests == true && github.event_name != 'release'
@@ -487,10 +477,10 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Download Docker images
+      - name: Download ALL Docker images
         uses: actions/download-artifact@v4
         with:
-          name: docker-images-build-${{ needs.build.outputs.run-id }}
+          pattern: docker-image-*-${{ needs.build.outputs.run-id }}
           path: .
   
       - name: Load Docker images
