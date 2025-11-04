@@ -103,7 +103,6 @@ jobs:
             **/target/
             !**/target/*.war
             !**/target/*.ear
-            ~/.m2/repository
           retention-days: 1
 
   codacy-analysis-cli:
@@ -129,11 +128,6 @@ jobs:
         with:
           name: maven-build-${{ needs.maven.outputs.run-id }}
           path: .
-
-      - name: Restore Maven local repo
-        run: |
-          mkdir -p ~/.m2/repository
-          cp -r maven-build-${{ needs.maven.outputs.run-id }}/.m2/repository/* ~/.m2/repository/ || true
 
       - name: Run Codacy Analysis CLI
         uses: codacy/codacy-analysis-cli-action@master
@@ -179,11 +173,6 @@ jobs:
         with:
           name: maven-build-${{ needs.maven.outputs.run-id }}
           path: .
-
-      - name: Restore Maven local repo
-        run: |
-          mkdir -p ~/.m2/repository
-          cp -r maven-build-${{ needs.maven.outputs.run-id }}/.m2/repository/* ~/.m2/repository/ || true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
