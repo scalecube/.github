@@ -238,6 +238,7 @@ jobs:
 
   scan:
     name: Scan with Trivy
+    needs: maven
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -250,27 +251,33 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Set up Maven
-        run: cp build.settings.xml ~/.m2/settings.xml
-      - name: Maven Build
-        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
-        env:
-          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+
+      - name: Download Maven build
+        uses: actions/download-artifact@v4
+        with:
+          name: maven-build-${{ needs.maven.outputs.run-id }}
+          path: .
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
       - name: Login to Docker
         run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+
       - name: Prepare TEST_IMAGE_TAG env
         run: |
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
+
       - name: Make Trivy template file with heredoc
         run: |
           cat << 'EOF' > template.tpl 
@@ -296,6 +303,7 @@ jobs:
           | Total Critical | {{ $critical }} |
           | Total High | {{ $high }} |
           EOF
+
       - name: Build and Scan Docker images with Trivy
         run: |
           echo "Install Trivy scanner for Docker Image Security scanning"
@@ -331,6 +339,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
           TRIVY_DB_REPOSITORY: ${{ secrets.TRIVY_DB_REPOSITORY }}
+
       - name: Upload scan results as artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -338,12 +347,14 @@ jobs:
           path: |
             scan-results.md
             scan-results.json
+
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
           TRIVY_DB_REPOSITORY: ${{ secrets.TRIVY_DB_REPOSITORY }}
+
       - name: Upload scan results as artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -428,6 +439,7 @@ jobs:
     steps:
       - name: jobName
         run: echo '# Push 🚀' >> $GITHUB_STEP_SUMMARY
+
       - name: Overwrite VERSION env
         run: |
           echo VERSION=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
@@ -435,24 +447,29 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           java-version: '21'
           distribution: 'temurin'
           cache: 'maven'
-      - name: Set up Maven
-        run: cp build.settings.xml ~/.m2/settings.xml
-      - name: Maven Build
-        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
-        env:
-          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+
+      - name: Download Maven build
+        uses: actions/download-artifact@v4
+        with:
+          name: maven-build-${{ needs.maven.outputs.run-id }}
+          path: .
+
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+
       - name: Login to Docker
         run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+        
       - name: Push Docker images
         id: pushDockerImages
         run: |
