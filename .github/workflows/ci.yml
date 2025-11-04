@@ -205,13 +205,18 @@ jobs:
 
             ARTIFACT="docker-image-$image-${{ github.run_id }}.tar"
             docker save ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} -o "$ARTIFACT"
-            echo "Uploading $ARTIFACT"
-            gh workflow run-artifacts upload \
-              --name "docker-image-$image-${{ github.run_id }}" \
-              --path "$ARTIFACT" \
-              --retention-days 1            
+            echo "$ARTIFACT" >> /tmp/docker-artifacts.txt
+            echo "name=docker-image-$image-${{ github.run_id }}" >> /tmp/artifact-names.txt       
           done
 
+      - name: Upload all Docker image artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-images-${{ github.run_id }}
+          path: |
+            docker-image-*.tar
+          retention-days: 1
+          
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
 
