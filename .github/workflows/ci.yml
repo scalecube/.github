@@ -221,7 +221,7 @@ jobs:
       - name: Upload Docker images
         uses: actions/upload-artifact@v4
         with:
-          name: docker-images-${{ github.run_id }}-${{ github.run_attempt }}
+          name: docker-images-${{ github.job }}-${{ github.run_id }}
           path: docker-image-*.tar
           retention-days: 1
 
@@ -490,7 +490,7 @@ jobs:
       - name: Download Docker images
         uses: actions/download-artifact@v4
         with:
-          name: docker-images-${{ needs.build.outputs.run-id }}-${{ github.run_attempt }}
+          name: docker-images-build-${{ needs.build.outputs.run-id }}
           path: .
   
       - name: Load Docker images
