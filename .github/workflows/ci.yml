@@ -498,7 +498,8 @@ jobs:
               json_array+="$element,"
           done
           json_array="${json_array%,}]"
-          echo "::set-output name=img::$json_array
+          echo "::set-output name=img::$json_array"
+          
           VERSION=$(date +%Y%m%d%H%M%S)
           echo "images=$json_array" >> $GITHUB_OUTPUT
           echo "####################################"
