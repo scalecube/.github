@@ -146,8 +146,6 @@ jobs:
     name: Build (${{ matrix.arch }})
     needs: maven
     runs-on: ubuntu-latest
-    outputs:
-      run-id: ${{ github.run_id }}
     strategy:
       fail-fast: false
       matrix:
@@ -201,26 +199,8 @@ jobs:
             fi
             docker buildx build --load --platform ${{ matrix.arch }} \
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
-            $directory     
+            $directory
           done
-
-      - name: Save all Docker images
-        run: |
-          IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "${{ env.TEST_IMAGE_TAG }}")
-          [[ -z "$IMAGES" ]] && echo "No images to save" && exit 0
-  
-          echo "Saving images:"
-          echo "$IMAGES"
-  
-          docker save $IMAGES -o all-docker-images-${{ github.run_id }}.tar
-
-      - name: Upload all Docker images
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-images-${{ github.run_id }}
-          path: |
-            all-docker-images-${{ github.run_id }}.tar
-          retention-days: 1
 
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
@@ -486,17 +466,6 @@ jobs:
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Download Docker images
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-images-${{ needs.build.outputs.run-id }}
-          path: .
-  
-      - name: Load all images
-        run: |
-          TAR=$(ls all-docker-images-*.tar)
-          [[ -f "$TAR" ]] && docker load -i "$TAR" || echo "No image tarball found"
                   
       - name: Login to Docker
         run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
@@ -504,71 +473,40 @@ jobs:
       - name: Push Docker images
         id: pushDockerImages
         run: |
-          for tar in docker-image-*.tar; do
-            [[ -f "$tar" ]] && docker load -i "$tar"
-          done
-
-          IMAGES_JSON="[]"
-          SUMMARY_TABLE="| Image Name |\n| - |\n"
-
-          for img in $(docker images --format '{{.Repository}}:{{.Tag}}' \
-                       | grep "ghcr.io/${GITHUB_REPOSITORY}" \
-                       | grep "${{ env.VERSION }}" ); do
-
-            echo "Pushing $img"
-            docker buildx build --push \
-              --platform linux/amd64,linux/arm64 \
-              -t "$img" \
-              -t "${img%:*}:latest" \
-              "$(dirname "$(docker image inspect "$img" --format '{{index .Config.Labels "org.opencontainers.image.source"}}')")" \
-              > /dev/null
-
-            SUMMARY_TABLE+="${img}\n"
-
-            IMAGES_JSON=$(echo "$IMAGES_JSON" | jq --arg i "$img" '. += [$i]')
-          done
-
+          IMAGES=()
           echo "## Docker Images" >> $GITHUB_STEP_SUMMARY
-          echo -e "$SUMMARY_TABLE" >> $GITHUB_STEP_SUMMARY
-
-          echo "images=$IMAGES_JSON" >> $GITHUB_OUTPUT
-
-          echo "Pushed images: $IMAGES_JSON"
-          # IMAGES=()
-          # echo "## Docker Images" >> $GITHUB_STEP_SUMMARY
-          # echo "| Image Name |" >> $GITHUB_STEP_SUMMARY
-          # echo "| - | ">> $GITHUB_STEP_SUMMARY
-          # for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
-          # do
-          #   echo Run docker build for $directory
-          #   if [[ $directory == '.' ]]; then
-          #     image=${{ github.event.repository.name }}
-          #   else
-          #     image=$directory
-          #   fi
-          #   docker buildx build --push --platform linux/amd64,linux/arm64 \
-          #   -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }} \
-          #   -t ghcr.io/${GITHUB_REPOSITORY}/$image:latest \
-          #   $directory
-          #   echo "| ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }} |" >> $GITHUB_STEP_SUMMARY
-          #   IMAGES+=(\"ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }}\")
-          # done
-          # # Convert the array to a JSON string
-          # json_array="["
-          # for element in "${IMAGES[@]}"; do
-          #     json_array+="$element,"
-          # done
-          # json_array="${json_array%,}]"
-          # echo "::set-output name=img::$json_array"
-
-          # VERSION=$(date +%Y%m%d%H%M%S)
-          # echo "images=$json_array" >> $GITHUB_OUTPUT
-          # echo "####################################"
-          # echo $VERSION
-          # echo "####################################"
-          # echo ${IMAGES[@]}
-          # echo "####################################"
-          # echo $json_array
+          echo "| Image Name |" >> $GITHUB_STEP_SUMMARY
+          echo "| - | ">> $GITHUB_STEP_SUMMARY
+          for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
+          do
+            echo Run docker build for $directory
+            if [[ $directory == '.' ]]; then
+              image=${{ github.event.repository.name }}
+            else
+              image=$directory
+            fi
+            docker buildx build --push --platform linux/amd64,linux/arm64 \
+            -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }} \
+            -t ghcr.io/${GITHUB_REPOSITORY}/$image:latest \
+            $directory
+            echo "| ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }} |" >> $GITHUB_STEP_SUMMARY
+            IMAGES+=(\"ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }}\")
+          done
+          # Convert the array to a JSON string
+          json_array="["
+          for element in "${IMAGES[@]}"; do
+              json_array+="$element,"
+          done
+          json_array="${json_array%,}]"
+          echo "::set-output name=img::$json_array
+          VERSION=$(date +%Y%m%d%H%M%S)
+          echo "images=$json_array" >> $GITHUB_OUTPUT
+          echo "####################################"
+          echo $VERSION
+          echo "####################################"
+          echo ${IMAGES[@]}
+          echo "####################################"
+          echo $json_array
 
       - name: Package and publish to helm registry
         run: |
