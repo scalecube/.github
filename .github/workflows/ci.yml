@@ -70,7 +70,7 @@ jobs:
     name: Maven Build & Cache
     runs-on: ubuntu-latest
     outputs:
-      cache-key: ${{ steps.cache.outputs.cache-key }}
+      run-id: ${{ github.run_id }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -84,19 +84,7 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
   
-      - name: Restore Maven cache
-        id: cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.m2/repository
-            **/target
-          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            maven-${{ runner.os }}-
-  
-      - name: Maven Build (full)
-        if: steps.cache.outputs.cache-hit != 'true'
+      - name: Maven Build
         run: |
           cp build.settings.xml ~/.m2/settings.xml
           mvn -B clean install \
@@ -110,7 +98,7 @@ jobs:
       - name: Upload Maven artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: maven-build-${{ github.run_id }}
+          name: maven-build-${{ github.workflow }}-${{ github.run_attempt }}
           path: |
             **/target/
             !**/target/*.war
@@ -139,13 +127,13 @@ jobs:
       - name: Download Maven build
         uses: actions/download-artifact@v4
         with:
-          name: maven-build-${{ needs.maven.outputs.cache-key }}
+          name: maven-build-${{ github.workflow }}-${{ needs.maven.outputs.run-attempt }}
           path: .
 
       - name: Restore Maven local repo
         run: |
           mkdir -p ~/.m2/repository
-          cp -r maven-build-${{ needs.maven.outputs.cache-key }}/.m2/repository/* ~/.m2/repository/ || true
+          cp -r maven-build-${{ github.workflow }}-${{ needs.maven.outputs.run-attempt }}/.m2/repository/* ~/.m2/repository/ || true
 
       - name: Run Codacy Analysis CLI
         uses: codacy/codacy-analysis-cli-action@master
@@ -189,13 +177,13 @@ jobs:
       - name: Download Maven build
         uses: actions/download-artifact@v4
         with:
-          name: maven-build-${{ needs.maven.outputs.cache-key }}
+          name: maven-build-${{ github.workflow }}-${{ needs.maven.outputs.run-attempt }}
           path: .
 
       - name: Restore Maven local repo
         run: |
           mkdir -p ~/.m2/repository
-          cp -r maven-build-${{ needs.maven.outputs.cache-key }}/.m2/repository/* ~/.m2/repository/ || true
+          cp -r maven-build-${{ github.workflow }}-${{ needs.maven.outputs.run-attempt }}/.m2/repository/* ~/.m2/repository/ || true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
@@ -250,7 +238,7 @@ jobs:
         run: |
           files=$(find . -path '*/target/site/jacoco/jacoco.xml' | paste -sd "," -)
           echo "files=$files" >> $GITHUB_OUTPUT
-          
+
       - name: Upload coverage to Codacy
         if: ${{ steps.find-coverage.outputs.files != '' }}
         uses: codacy/codacy-coverage-reporter-action@v1.3.0
