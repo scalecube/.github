@@ -201,22 +201,27 @@ jobs:
             fi
             docker buildx build --load --platform ${{ matrix.arch }} \
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
-            $directory
-
-            ARTIFACT="docker-image-$image-${{ github.run_id }}.tar"
-            docker save ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} -o "$ARTIFACT"
-            echo "$ARTIFACT" >> /tmp/docker-artifacts.txt
-            echo "name=docker-image-$image-${{ github.run_id }}" >> /tmp/artifact-names.txt       
+            $directory     
           done
 
-      - name: Upload all Docker image artifacts
+      - name: Save all Docker images
+        run: |
+          IMAGES=$(docker images --format '{{.Repository}}:{{.Tag}}' | grep "${{ env.TEST_IMAGE_TAG }}")
+          [[ -z "$IMAGES" ]] && echo "No images to save" && exit 0
+  
+          echo "Saving images:"
+          echo "$IMAGES"
+  
+          docker save $IMAGES -o all-docker-images-${{ github.run_id }}.tar
+
+      - name: Upload all Docker images
         uses: actions/upload-artifact@v4
         with:
           name: docker-images-${{ github.run_id }}
           path: |
-            docker-image-*.tar
+            all-docker-images-${{ github.run_id }}.tar
           retention-days: 1
-          
+
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
 
@@ -482,17 +487,16 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Download ALL Docker images
+      - name: Download Docker images
         uses: actions/download-artifact@v4
         with:
-          pattern: docker-image-*-${{ needs.build.outputs.run-id }}
+          name: docker-images-${{ needs.build.outputs.run-id }}
           path: .
   
-      - name: Load Docker images
+      - name: Load all images
         run: |
-          for img in docker-image-*.tar; do
-            [[ -f "$img" ]] && docker load -i "$img"
-          done
+          TAR=$(ls all-docker-images-*.tar)
+          [[ -f "$TAR" ]] && docker load -i "$TAR" || echo "No image tarball found"
                   
       - name: Login to Docker
         run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
