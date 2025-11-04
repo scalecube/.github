@@ -98,7 +98,7 @@ jobs:
       - name: Upload Maven artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: maven-build-${{ github.workflow }}-${{ github.run_attempt }}
+          name: maven-build-${{ github.run_id }}
           path: |
             **/target/
             !**/target/*.war
@@ -127,13 +127,13 @@ jobs:
       - name: Download Maven build
         uses: actions/download-artifact@v4
         with:
-          name: maven-build-${{ github.workflow }}-${{ needs.maven.outputs.run-attempt }}
+          name: maven-build-${{ needs.maven.outputs.run-id }}
           path: .
 
       - name: Restore Maven local repo
         run: |
           mkdir -p ~/.m2/repository
-          cp -r maven-build-${{ github.workflow }}-${{ needs.maven.outputs.run-attempt }}/.m2/repository/* ~/.m2/repository/ || true
+          cp -r maven-build-${{ needs.maven.outputs.run-id }}/.m2/repository/* ~/.m2/repository/ || true
 
       - name: Run Codacy Analysis CLI
         uses: codacy/codacy-analysis-cli-action@master
@@ -177,13 +177,13 @@ jobs:
       - name: Download Maven build
         uses: actions/download-artifact@v4
         with:
-          name: maven-build-${{ github.workflow }}-${{ needs.maven.outputs.run-attempt }}
+          name: maven-build-${{ needs.maven.outputs.run-id }}
           path: .
 
       - name: Restore Maven local repo
         run: |
           mkdir -p ~/.m2/repository
-          cp -r maven-build-${{ github.workflow }}-${{ needs.maven.outputs.run-attempt }}/.m2/repository/* ~/.m2/repository/ || true
+          cp -r maven-build-${{ needs.maven.outputs.run-id }}/.m2/repository/* ~/.m2/repository/ || true
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
