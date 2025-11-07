@@ -130,6 +130,8 @@ jobs:
         run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+      - name: Login to Docker
+        run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
       - name: Maven Verify
         if: inputs.tests == true && github.event_name != 'release'
         run: |
