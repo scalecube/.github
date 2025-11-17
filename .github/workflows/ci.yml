@@ -50,6 +50,8 @@ on:
         required: false
       TRIVY_JAVA_DB_REPOSITORY:
         required: false
+      GH_USERNAME: 
+        required: true
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
