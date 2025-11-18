@@ -35,7 +35,7 @@ on:
 
     secrets:
       ORGANIZATION_USER:
-        required: true
+        required: false
       ORGANIZATION_TOKEN:
         required: true
       HELM_REGISTRY_URL:
