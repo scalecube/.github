@@ -8,8 +8,8 @@ on:
         required: false
         default: "['']"  
     secrets:
-      ORGANIZATION_USER: 
-        required: false
+      ORGANIZATION_USER:
+        required: true
       ORGANIZATION_TOKEN:
         required: true
       CODACY_PROJECT_TOKEN:

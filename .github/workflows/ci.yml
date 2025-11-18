@@ -34,8 +34,8 @@ on:
           Default is '0', possible values '0' or '1'
 
     secrets:
-      ORGANIZATION_USER: 
-        required: false
+      ORGANIZATION_USER:
+        required: true
       ORGANIZATION_TOKEN:
         required: true
       HELM_REGISTRY_URL:
