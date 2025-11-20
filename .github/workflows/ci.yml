@@ -531,8 +531,7 @@ jobs:
             const { data: issues } = await github.rest.issues.listForRepo({
               owner,
               repo,
-              state: 'open',
-              labels: ['Bug'],
+              state: 'open'
             });
 
             const issueExists = issues.some(issue => issue.title === issueTitle);
@@ -544,7 +543,7 @@ jobs:
                 repo,
                 title: issueTitle,
                 body: issueBody,
-                labels: ['Bug'],
+                type: 'Bug',
               });
               console.log('New issue is created for the failed scheduled build');
             } else {
@@ -574,8 +573,7 @@ jobs:
             const { data: issues } = await github.rest.issues.listForRepo({
               owner,
               repo,
-              state: 'open',
-              labels: ['Bug'],
+              state: 'open'
             });
 
             if (issues.length === 0) {
