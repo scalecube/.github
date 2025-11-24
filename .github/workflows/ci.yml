@@ -128,7 +128,7 @@ jobs:
         run: cp build.settings.xml ~/.m2/settings.xml
       - name: Maven Verify
         if: inputs.tests == true && github.event_name != 'release'
-        run: mvn clean verify ${{ matrix.mvn-verify-opts }} -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
+        run: mvn clean verify ${{ matrix.mvn-verify-opts }} -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
       - name: Upload logs
