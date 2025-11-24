@@ -103,11 +103,6 @@ jobs:
           skip-uncommitted-files-check: true
           verbose: true
         continue-on-error: true
-      - name: Run codacy-coverage-reporter
-        uses: codacy/codacy-coverage-reporter-action@v1.3.0
-        with:
-          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
-        continue-on-error: true
 
   build:
     name: Build (${{ matrix.arch }})
@@ -139,47 +134,30 @@ jobs:
         run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-      - name: Login to Docker
-        run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
-      - name: Prepare TEST_IMAGE_TAG env
-        run: |
-          echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
-
-      - name: Build Docker images
-        run: |
-          for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
-          do
-            echo Run docker buildx build for $directory
-            if [[ $directory == '.' ]]; then
-              image=${{ github.event.repository.name }}
-            else
-              image=$directory
-            fi
-            docker buildx build --load --platform ${{ matrix.arch }} \
-            -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
-            $directory
-          done
-      - name: Show Docker images
-        run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
       - name: Maven Verify
         if: inputs.tests == true && github.event_name != 'release'
-        run: |
-          sudo echo "172.17.0.1 host.docker.internal" | sudo tee -a /etc/hosts
-          sudo echo "127.0.0.1 $(eval hostname)" | sudo tee -a /etc/hosts
-          mvn verify ${{ matrix.mvn-verify-opts }} -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B
+        run: mvn verify ${{ matrix.mvn-verify-opts }} -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-      - name: Upload test containers logs
+      - name: Upload logs
         if: always() && inputs.tests == true
         uses: actions/upload-artifact@v4
         with:
           name: logs-${{ github.run_id }}-${{ github.run_number }}-${{ runner.name }}
           path: target/logs/
           overwrite: true
+      - name: Find all JaCoCo reports
+        id: find-coverage
+        run: |
+          files=$(find . -path '*/target/site/jacoco/jacoco.xml' | paste -sd "," -)
+          echo "files=$files" >> $GITHUB_OUTPUT
+      - name: Upload coverage to Codacy
+        if: ${{ steps.find-coverage.outputs.files != '' }}
+        uses: codacy/codacy-coverage-reporter-action@v1.3.0
+        with:
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          coverage-reports: ${{ steps.find-coverage.outputs.files }}
+          language: Java
 
   scan:
     name: Scan with Trivy
@@ -247,8 +225,8 @@ jobs:
           echo "Install Trivy scanner for Docker Image Security scanning"
           sudo apt-get update
           sudo apt-get install -y wget > /dev/null 2>&1
-          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.57.1/trivy_0.57.1_Linux-64bit.deb
-          sudo dpkg -i trivy_0.57.1_Linux-64bit.deb > /dev/null 2>&1
+          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.61.0/trivy_0.61.0_Linux-64bit.deb
+          sudo dpkg -i trivy_0.61.0_Linux-64bit.deb > /dev/null 2>&1
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
             echo Run docker buildx build for $directory
@@ -264,7 +242,12 @@ jobs:
             export TRIVY_DB_REPOSITORY=${{ secrets.TRIVY_DB_REPOSITORY }}
             export TRIVY_JAVA_DB_REPOSITORY=${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
             docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+
+            # Generate JSON output for CVE extraction
+            trivy image --format json --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output scan-results.json --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            # Generate Markdown output for human-readable report
             trivy image --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
             cat scan-results.md >> $GITHUB_STEP_SUMMARY
           done
@@ -272,25 +255,90 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
           TRIVY_DB_REPOSITORY: ${{ secrets.TRIVY_DB_REPOSITORY }}
+      - name: Upload scan results as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-results-${{ github.run_id }}
+          path: |
+            scan-results.md
+            scan-results.json
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
-      - name: Scan Docker images and fail CI in case it detects any vulnerabilities
-        run: |
-          for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
-          do
-            echo Run docker buildx build for $directory
-            if [[ $directory == '.' ]]; then
-              image=${{ github.event.repository.name }}
-            else
-              image=$directory
-            fi
-            echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
-            trivy image --format template --template @template.tpl --exit-code 1 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
-          done
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
           TRIVY_DB_REPOSITORY: ${{ secrets.TRIVY_DB_REPOSITORY }}
+      - name: Upload scan results as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-scan-results
+          path: |
+            scan-results.md
+            scan-results.json
+
+      - name: Create Issues for CVEs
+        uses: actions/github-script@v7
+        env:
+          ACTIVE_TOKEN: ${{ secrets.ORGANIZATION_TOKEN || secrets.GITHUB_TOKEN }}
+          GH_ISSUE_LABELS: ${{ vars.GH_ISSUE_LABELS }}
+          GH_ORGANIZATION: ${{ vars.GH_ORGANIZATION || github.repository_owner }}
+          GH_ISSUES_REPO: ${{ vars.GH_ISSUES_REPO || github.event.repository.name  }}
+        with:
+          github-token: ${{ env.ACTIVE_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const repoOwner = process.env.GH_ORGANIZATION;
+            const repoName = process.env.GH_ISSUES_REPO;
+
+            // Read the Trivy scan results
+            const data = JSON.parse(fs.readFileSync('scan-results.json', 'utf8'));
+
+            // Extract vulnerabilities and prevent duplicates
+            const vulnerabilities = new Map();
+            for (const result of data.Results || []) {
+              for (const vuln of result.Vulnerabilities || []) {
+                if (vuln.Severity === 'HIGH' || vuln.Severity === 'CRITICAL') {
+                  if (!vulnerabilities.has(vuln.VulnerabilityID)) {
+                    vulnerabilities.set(vuln.VulnerabilityID, vuln);
+                  }
+                }
+              }
+            }
+
+            // Get configurable labels or default to ['Security', 'Trivy']
+            const customLabels = process.env.GH_ISSUE_LABELS 
+              ? process.env.GH_ISSUE_LABELS.split(',').map(label => label.trim()) 
+              : ['Security', 'Trivy'];
+
+            // Process vulnerabilities
+            for (const [cve, vuln] of vulnerabilities) {
+              // Check if an issue already exists
+              const existingIssues = await github.rest.issues.listForRepo({
+                owner: repoOwner,
+                repo: repoName,
+                state: "open"
+              });
+
+              const issueExists = existingIssues.data.some(issue => issue.title.includes(cve));
+              if (!issueExists) {
+
+                // Ensure severity label is always included
+                const labels = [vuln.Severity, ...customLabels];
+            
+                // Create a new issue
+                const issueTitle = `[${vuln.Severity}] Security Issue - ${cve}`;
+                await github.rest.issues.create({
+                  owner: repoOwner,
+                  repo: repoName,
+                  title: issueTitle,
+                  body: `### Trivy Security Scan Findings in \`${context.repo.repo}\`\n\n- **CVE**: ${cve}\n- **Severity**: ${vuln.Severity}\n\n[CVE Details](https://nvd.nist.gov/vuln/detail/${cve})\n\n[View scan results](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }})`,
+                  labels: labels
+                });
+                console.log(`Created issue for ${cve} with labels: ${labels.join(', ')}`);
+              } else {
+                console.log(`Issue for ${cve} already exists.`);
+              }
+            }
 
   push:
     outputs:
@@ -320,10 +368,17 @@ jobs:
           cache: 'maven'
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
-      - name: Maven Build
-        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
+      - name: Deploy jars
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
+            REVISION=${VERSION}
+          else
+            REVISION=${VERSION}-SNAPSHOT
+          fi
+          mvn clean deploy -DskipTests -Dgpg.skip=true -Drevision=$REVISION -B -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v1
       - name: Set up Docker Buildx
@@ -476,21 +531,20 @@ jobs:
             const repoShortName = repoName.split('/')[1];
             const issueTitle = `Scheduled Build Fail (${repoShortName})`;
             const issueBody = `Link: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
-            
-            // Set the owner and repo to exberry-io/docs
-            const owner = 'exberry-io';
-            const repo = 'docs';
-            
+
+            // Set the owner and repo to open/close GitHub issues
+            const owner = '${{ vars.GH_ORGANIZATION }}';
+            const repo = '${{ vars.GH_ISSUES_REPO }}';
+
             // Check if an open issue with the same title and label exists
             const { data: issues } = await github.rest.issues.listForRepo({
               owner,
               repo,
-              state: 'open',
-              labels: ['Bug'],
+              state: 'open'
             });
-            
+
             const issueExists = issues.some(issue => issue.title === issueTitle);
-            
+
             if (!issueExists) {
               // Create a new issue
               await github.rest.issues.create({
@@ -498,7 +552,7 @@ jobs:
                 repo,
                 title: issueTitle,
                 body: issueBody,
-                labels: ['Bug'],
+                type: 'Bug',
               });
               console.log('New issue is created for the failed scheduled build');
             } else {
@@ -521,15 +575,14 @@ jobs:
             const issueTitle = `Scheduled Build Fail (${repoShortName})`;
             const closeComment = `Closed due to success build: https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}`;
 
-            // Set the owner and repo to exberry-io/docs
-            const owner = 'exberry-io';
-            const repo = 'docs';
+            // Set the owner and repo to open/close GitHub issues
+            const owner = '${{ vars.GH_ORGANIZATION }}';
+            const repo = '${{ vars.GH_ISSUES_REPO }}';
 
             const { data: issues } = await github.rest.issues.listForRepo({
               owner,
               repo,
-              state: 'open',
-              labels: ['Bug'],
+              state: 'open'
             });
 
             if (issues.length === 0) {
