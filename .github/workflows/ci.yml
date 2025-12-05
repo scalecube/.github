@@ -536,7 +536,7 @@ jobs:
             const owner = '${{ vars.GH_ORGANIZATION }}';
             const repo = '${{ vars.GH_ISSUES_REPO }}';
 
-            // Check if an open issue with the same title and label exists
+            // Check if an open issue with the same title exists
             const { data: issues } = await github.rest.issues.listForRepo({
               owner,
               repo,
@@ -553,6 +553,7 @@ jobs:
                 title: issueTitle,
                 body: issueBody,
                 type: 'Bug',
+                labels: ['Technical']
               });
               console.log('New issue is created for the failed scheduled build');
             } else {
