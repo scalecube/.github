@@ -376,7 +376,7 @@ jobs:
             REVISION=${VERSION}-SNAPSHOT
           fi
           mvn clean deploy -DskipTests -Dgpg.skip=true -Drevision=$REVISION -B -V -U
-          ls -la target
+          ls -la discovery/target
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
