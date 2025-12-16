@@ -369,13 +369,7 @@ jobs:
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
       - name: Deploy jars
-        run: |
-          if [[ "$GITHUB_EVENT_NAME" == "release" ]]; then
-            REVISION=${VERSION}
-          else
-            REVISION=${VERSION}-SNAPSHOT
-          fi
-          mvn clean deploy -DskipTests -Dgpg.skip=true -Drevision=$REVISION -B -V -U
+        run: mvn clean deploy -DskipTests -Dgpg.skip=true -Drevision=${VERSION}-SNAPSHOT -B -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
