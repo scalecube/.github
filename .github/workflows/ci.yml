@@ -311,16 +311,16 @@ jobs:
               : ['Security', 'Trivy'];
 
             // Process vulnerabilities
-            for (const [cve, vuln] of vulnerabilities) {
-              // Check if an issue already exists
-              const existingIssues = await github.paginate(
-                await github.rest.issues.listForRepo({
-                owner: repoOwner,
-                repo: repoName,
-                state: "open",
-                per_page: 100
-              }));
-
+            // Check if an issue already exists
+            const existingIssues = await github.paginate(
+              await github.rest.issues.listForRepo({
+              owner: repoOwner,
+              repo: repoName,
+              state: "open",
+              per_page: 100
+            }));
+              
+            for (const [cve, vuln] of vulnerabilities) {             
               const issueExists = existingIssues.data.some(issue => issue.title.includes(cve));
               if (!issueExists) {
 
