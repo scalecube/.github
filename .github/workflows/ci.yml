@@ -313,11 +313,13 @@ jobs:
             // Process vulnerabilities
             for (const [cve, vuln] of vulnerabilities) {
               // Check if an issue already exists
-              const existingIssues = await github.rest.issues.listForRepo({
+              const existingIssues = await github.paginate(
+                await github.rest.issues.listForRepo({
                 owner: repoOwner,
                 repo: repoName,
-                state: "open"
-              });
+                state: "open",
+                per_page: 100
+              }));
 
               const issueExists = existingIssues.data.some(issue => issue.title.includes(cve));
               if (!issueExists) {
