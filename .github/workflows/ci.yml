@@ -386,6 +386,7 @@ jobs:
           echo "| - | ">> $GITHUB_STEP_SUMMARY
           for directory in $(find . -maxdepth 10 -type d)
           do
+            clean_dir="${directory#./}"
             # Find Dockerfiles inside this directory (non-recursive)
             dockerfiles=$(find "$directory" -maxdepth 1 -type f \( -name 'Dockerfile' -o -name 'Dockerfile-*' \))
           
@@ -406,10 +407,10 @@ jobs:
               fi
           
               # Base image name
-              if [[ "$directory" == "." ]]; then
+              if [[ -z "$clean_dir" ]]; then
                 image="${{ github.event.repository.name }}"
               else
-                image="$directory"
+                image="$clean_dir"
               fi
           
               # Append suffix if it exists
