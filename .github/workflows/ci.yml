@@ -415,17 +415,19 @@ jobs:
           
               # Append suffix if it exists
               if [[ -n "$suffix" ]]; then
-                image="${image}-${suffix}"
+                tag="${{ env.VERSION }}-${suffix}"
+              else
+                tag="${{ env.VERSION }}"
               fi
           
               docker buildx build --push --platform linux/amd64,linux/arm64 \
                 -f "$dockerfile" \
-                -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }} \
+                -t ghcr.io/${GITHUB_REPOSITORY}/$image:$tag \
                 -t ghcr.io/${GITHUB_REPOSITORY}/$image:latest \
                 "$directory"
           
-              echo "| ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }} |" >> $GITHUB_STEP_SUMMARY
-              IMAGES+=("ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }}")
+              echo "| ghcr.io/${GITHUB_REPOSITORY}/$image:$tag |" >> $GITHUB_STEP_SUMMARY
+              IMAGES+=("ghcr.io/${GITHUB_REPOSITORY}/$image:$tag")
           
             done
           done
