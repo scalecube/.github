@@ -384,20 +384,52 @@ jobs:
           echo "## Docker Images" >> $GITHUB_STEP_SUMMARY
           echo "| Image Name |" >> $GITHUB_STEP_SUMMARY
           echo "| - | ">> $GITHUB_STEP_SUMMARY
-          for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
+          for directory in $(find . -maxdepth 10 -type d)
           do
-            echo Run docker build for $directory
-            if [[ $directory == '.' ]]; then
-              image=${{ github.event.repository.name }}
-            else
-              image=$directory
-            fi
-            docker buildx build --push --platform linux/amd64,linux/arm64 \
-            -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }} \
-            -t ghcr.io/${GITHUB_REPOSITORY}/$image:latest \
-            $directory
-            echo "| ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }} |" >> $GITHUB_STEP_SUMMARY
-            IMAGES+=(\"ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.VERSION }}\")
+            clean_dir="${directory#./}"
+            # Find Dockerfiles inside this directory (non-recursive)
+            dockerfiles=$(find "$directory" -maxdepth 1 -type f \( -name 'Dockerfile' -o -name 'Dockerfile-*' \))
+          
+            # Skip if none found
+            [[ -z "$dockerfiles" ]] && continue
+          
+            for dockerfile in $dockerfiles
+            do
+              filename=$(basename "$dockerfile")
+          
+              echo "Run docker build for $dockerfile"
+          
+              # Extract suffix if present
+              if [[ "$filename" =~ ^Dockerfile-(.+)$ ]]; then
+                suffix="${BASH_REMATCH[1]}"
+              else
+                suffix=""
+              fi
+          
+              # Base image name
+              if [[ -z "$clean_dir" ]]; then
+                image="${{ github.event.repository.name }}"
+              else
+                image="$clean_dir"
+              fi
+          
+              # Append suffix if it exists
+              if [[ -n "$suffix" ]]; then
+                tag="${{ env.VERSION }}-${suffix}"
+              else
+                tag="${{ env.VERSION }}"
+              fi
+          
+              docker buildx build --push --platform linux/amd64,linux/arm64 \
+                -f "$dockerfile" \
+                -t ghcr.io/${GITHUB_REPOSITORY}/$image:$tag \
+                -t ghcr.io/${GITHUB_REPOSITORY}/$image:latest \
+                "$directory"
+          
+              echo "| ghcr.io/${GITHUB_REPOSITORY}/$image:$tag |" >> $GITHUB_STEP_SUMMARY
+              IMAGES+=("ghcr.io/${GITHUB_REPOSITORY}/$image:$tag")
+          
+            done
           done
           # Convert the array to a JSON string
           json_array="["
