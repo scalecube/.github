@@ -391,6 +391,7 @@ jobs:
           for directory in $(find . -maxdepth 10 -type d)
           do
             clean_dir="${directory#./}"
+            [[ "$clean_dir" == "." ]] && clean_dir=""
             # Find Dockerfiles inside this directory (non-recursive)
             dockerfiles=$(find "$directory" -maxdepth 1 -type f \( -name 'Dockerfile' -o -name 'Dockerfile-*' \))
           
