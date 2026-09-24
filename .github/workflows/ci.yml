@@ -342,20 +342,24 @@ jobs:
               : ['Security', 'Trivy'];
 
             // Process vulnerabilities
+            const sourceRepo = context.repo.repo;
             for (const [cve, vuln] of vulnerabilities) {
               const searchResult = await github.rest.search.issuesAndPullRequests({
-                q: `repo:${repoOwner}/${repoName} "${cve}" in:title state:open is:issue`,
+                q: `repo:${repoOwner}/${repoName} "${cve}" "${sourceRepo}" in:title state:open is:issue`,
                 per_page: 100
               });
-              
-              const issueExists = searchResult.data.total_count > 0;
+
+              // Search is token-based ("discovery" also matches "discovery-service"),
+              // so verify the exact repo and CVE in the title
+              const issueExists = searchResult.data.items.some(issue =>
+                issue.title.includes(`] ${sourceRepo} `) && issue.title.endsWith(` - ${cve}`));
               if (!issueExists) {
                 // Ensure severity label is always included
                 const labels = [vuln.Severity, ...customLabels];
             
                 // Create a new issue
                 const pkg = `${vuln.PkgType}:${vuln.PkgName}`;
-                const issueTitle = `[${vuln.Severity}] ${pkg} - ${cve}`;
+                const issueTitle = `[${vuln.Severity}] ${sourceRepo} ${pkg} - ${cve}`;
                 await github.rest.issues.create({
                   owner: repoOwner,
                   repo: repoName,
@@ -363,9 +367,9 @@ jobs:
                   body: `### Trivy Security Scan Findings in \`${context.repo.repo}\`\n\n- **CVE**: ${cve}\n- **Severity**: ${vuln.Severity}\n- **Package**: \`${pkg}\`\n- **Installed**: ${vuln.InstalledVersion} → **Fixed in**: ${vuln.FixedVersion || 'n/a'}\n\n[CVE Details](https://nvd.nist.gov/vuln/detail/${cve})\n\n[View scan results](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }})`,
                   labels: labels
                 });
-                console.log(`Created issue for ${cve} with labels: ${labels.join(', ')}`);
+                console.log(`Created issue for ${sourceRepo} ${cve} with labels: ${labels.join(', ')}`);
               } else {
-                console.log(`Issue for ${cve} already exists.`);
+                console.log(`Issue for ${sourceRepo} ${cve} already exists.`);
               }
             }
 
