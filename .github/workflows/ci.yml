@@ -255,8 +255,10 @@ jobs:
           sudo apt-get install -y wget > /dev/null 2>&1
           wget -q https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.deb
           sudo dpkg -i trivy_0.74.0_Linux-64bit.deb > /dev/null 2>&1
+          scanned_images=0
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
+            scanned_images=$((scanned_images + 1))
             echo Run docker buildx build for $directory
             if [[ $directory == '.' ]]; then
               image=${{ github.event.repository.name }}
@@ -279,6 +281,7 @@ jobs:
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
             cat scan-results.md >> $GITHUB_STEP_SUMMARY
           done
+          echo "SCANNED_IMAGES=$scanned_images" >> $GITHUB_ENV
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
@@ -392,6 +395,52 @@ jobs:
               } else {
                 console.log(`Issue for ${sourceRepo} ${cve} already exists.`);
               }
+            }
+
+            // Close open issues of this repo whose CVE is no longer found by the scan.
+            // scan-results.json holds only the last scanned image, so closing is safe
+            // only when a single image was scanned.
+            const scannedImages = Number(process.env.SCANNED_IMAGES || 0);
+            if (scannedImages !== 1) {
+              console.log(`Skipping closing of resolved CVE issues: ${scannedImages} images scanned, expected 1.`);
+              return;
+            }
+
+            // Any CVE still present, regardless of package type, keeps its issue open
+            const foundCves = new Set();
+            for (const result of data.Results || []) {
+              for (const vuln of result.Vulnerabilities || []) {
+                foundCves.add(vuln.VulnerabilityID);
+              }
+            }
+
+            const openIssues = await github.paginate(github.rest.search.issuesAndPullRequests, {
+              q: `repo:${repoOwner}/${repoName} "${sourceRepo}" in:title state:open is:issue`,
+              per_page: 100
+            });
+
+            // Title format: [SEVERITY] [<repo>] [<CVE>] <type>:<artifact>:<version>
+            const titlePrefix = `] [${sourceRepo}] [`;
+            for (const issue of openIssues) {
+              const start = issue.title.indexOf(titlePrefix);
+              if (start < 0) continue;
+              const cve = issue.title.slice(start + titlePrefix.length).split(']')[0];
+              if (foundCves.has(cve)) continue;
+
+              await github.rest.issues.createComment({
+                owner: repoOwner,
+                repo: repoName,
+                issue_number: issue.number,
+                body: `${cve} is no longer found in \`${sourceRepo}\` on \`${branch}\` (${context.sha.slice(0, 7)}), closing as resolved.\n\n[View scan results](https://github.com/${context.repo.owner}/${sourceRepo}/actions/runs/${{ github.run_id }})`
+              });
+              await github.rest.issues.update({
+                owner: repoOwner,
+                repo: repoName,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'completed'
+              });
+              console.log(`Closed #${issue.number} for ${sourceRepo} ${cve}: no longer found.`);
             }
 
   push:
