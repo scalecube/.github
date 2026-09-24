@@ -370,14 +370,17 @@ jobs:
               // Search is token-based ("discovery" also matches "discovery-service"),
               // so verify the exact repo and CVE in the title
               const issueExists = searchResult.data.items.some(issue =>
-                issue.title.includes(`] ${sourceRepo} `) && issue.title.endsWith(` - ${cve}`));
+                issue.title.includes(`[${sourceRepo}] [${cve}]`));
               if (!issueExists) {
                 // Ensure severity label is always included
                 const labels = [vuln.Severity, ...customLabels];
             
                 // Create a new issue
                 const pkg = `${vuln.PkgType}:${vuln.PkgName}`;
-                const issueTitle = `[${vuln.Severity}] ${sourceRepo} ${pkg} - ${cve}`;
+                // Short package name and installed version in the title,
+                // e.g. 'org.eclipse.jetty:jetty-http' 10.0.26 -> 'jetty-http:10.0.26'
+                const shortPkg = `${vuln.PkgType}:${vuln.PkgName.split(':').pop()}:${vuln.InstalledVersion}`;
+                const issueTitle = `[${vuln.Severity}] [${sourceRepo}] [${cve}] ${shortPkg}`;
                 await github.rest.issues.create({
                   owner: repoOwner,
                   repo: repoName,
