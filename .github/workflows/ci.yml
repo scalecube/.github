@@ -363,19 +363,29 @@ jobs:
               ? process.env.GH_ISSUE_LABELS.split(',').map(label => label.trim()) 
               : ['Security', 'Trivy'];
 
-            // Process vulnerabilities
+            // Fetch open CVE issues of this repo once, instead of one search per CVE
+            // (the Search API allows only 30 requests per minute)
             const sourceRepo = context.repo.repo;
-            for (const [cve, vuln] of vulnerabilities) {
-              const searchResult = await github.rest.search.issuesAndPullRequests({
-                q: `repo:${repoOwner}/${repoName} "${cve}" "${sourceRepo}" in:title state:open is:issue`,
-                per_page: 100
-              });
+            const searchResults = await github.paginate(github.rest.search.issuesAndPullRequests, {
+              q: `repo:${repoOwner}/${repoName} "${sourceRepo}" in:title state:open is:issue`,
+              per_page: 100
+            });
 
-              // Search is token-based ("discovery" also matches "discovery-service"),
-              // so verify the exact repo and CVE in the title
-              const issueExists = searchResult.data.items.some(issue =>
-                issue.title.includes(`[${sourceRepo}] [${cve}]`));
-              if (!issueExists) {
+            // Title format: [SEVERITY] [<repo>] [<CVE>] <type>:<artifact>:<version>.
+            // Search is token-based ("discovery" also matches "discovery-service"), so match the exact repo in the title
+            const titlePrefix = `] [${sourceRepo}] [`;
+            const openIssues = new Map(); // CVE -> open issues (duplicates are possible)
+            for (const issue of searchResults) {
+              const start = issue.title.indexOf(titlePrefix);
+              if (start < 0) continue;
+              const cve = issue.title.slice(start + titlePrefix.length).split(']')[0];
+              openIssues.set(cve, [...(openIssues.get(cve) || []), issue]);
+            }
+            console.log(`Found ${[...openIssues.values()].flat().length} open issues for ${openIssues.size} CVEs of ${sourceRepo}.`);
+
+            // Process vulnerabilities
+            for (const [cve, vuln] of vulnerabilities) {
+              if (!openIssues.has(cve)) {
                 // Ensure severity label is always included
                 const labels = [vuln.Severity, ...customLabels];
             
@@ -416,33 +426,24 @@ jobs:
               }
             }
 
-            const openIssues = await github.paginate(github.rest.search.issuesAndPullRequests, {
-              q: `repo:${repoOwner}/${repoName} "${sourceRepo}" in:title state:open is:issue`,
-              per_page: 100
-            });
-
-            // Title format: [SEVERITY] [<repo>] [<CVE>] <type>:<artifact>:<version>
-            const titlePrefix = `] [${sourceRepo}] [`;
-            for (const issue of openIssues) {
-              const start = issue.title.indexOf(titlePrefix);
-              if (start < 0) continue;
-              const cve = issue.title.slice(start + titlePrefix.length).split(']')[0];
+            for (const [cve, issues] of openIssues) {
               if (foundCves.has(cve)) continue;
-
-              await github.rest.issues.createComment({
-                owner: repoOwner,
-                repo: repoName,
-                issue_number: issue.number,
-                body: `${cve} is no longer found in \`${sourceRepo}\` on \`${branch}\` (${context.sha.slice(0, 7)}), closing as resolved.\n\n[View scan results](https://github.com/${context.repo.owner}/${sourceRepo}/actions/runs/${{ github.run_id }})`
-              });
-              await github.rest.issues.update({
-                owner: repoOwner,
-                repo: repoName,
-                issue_number: issue.number,
-                state: 'closed',
-                state_reason: 'completed'
-              });
-              console.log(`Closed #${issue.number} for ${sourceRepo} ${cve}: no longer found.`);
+              for (const issue of issues) {
+                await github.rest.issues.createComment({
+                  owner: repoOwner,
+                  repo: repoName,
+                  issue_number: issue.number,
+                  body: `${cve} is no longer found in \`${sourceRepo}\` on \`${branch}\` (${context.sha.slice(0, 7)}), closing as resolved.\n\n[View scan results](https://github.com/${context.repo.owner}/${sourceRepo}/actions/runs/${{ github.run_id }})`
+                });
+                await github.rest.issues.update({
+                  owner: repoOwner,
+                  repo: repoName,
+                  issue_number: issue.number,
+                  state: 'closed',
+                  state_reason: 'completed'
+                });
+                console.log(`Closed #${issue.number} for ${sourceRepo} ${cve}: no longer found.`);
+              }
             }
 
   push:
