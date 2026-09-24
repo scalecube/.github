@@ -40,6 +40,14 @@ on:
           Comma-separated Trivy package types (Results[].Type) to open CVE issues for.
           Default 'jar' files issues only for application (Maven) dependencies.
           Use '*' to file issues for every scanned type, or e.g. 'jar,alpine'.
+      cve-issue-branches:
+        type: string
+        required: false
+        default: 'develop,master'
+        description: |
+          Comma-separated branches on which CVE issues are created.
+          The Trivy scan runs on every branch; on other branches the results
+          are available only in the job summary and scan artifact.
       debian-packages:
         type: boolean
         required: false
@@ -304,12 +312,22 @@ jobs:
           GH_ORGANIZATION: ${{ vars.GH_ORGANIZATION || github.repository_owner }}
           GH_ISSUES_REPO: ${{ vars.GH_ISSUES_REPO || github.event.repository.name  }}
           CVE_ISSUE_PKG_TYPES: ${{ inputs.cve-issue-pkg-types }}
+          CVE_ISSUE_BRANCHES: ${{ inputs.cve-issue-branches }}
         with:
           github-token: ${{ env.ACTIVE_TOKEN }}
           script: |
             const fs = require('fs');
             const repoOwner = process.env.GH_ORGANIZATION;
             const repoName = process.env.GH_ISSUES_REPO;
+
+            // Create issues only on the configured branches
+            const branches = (process.env.CVE_ISSUE_BRANCHES || 'develop,master')
+              .split(',').map(b => b.trim()).filter(Boolean);
+            const branch = context.ref.replace(/^refs\/heads\//, '');
+            if (!branches.includes(branch)) {
+              console.log(`Skipping CVE issues: '${branch}' is not one of [${branches.join(', ')}].`);
+              return;
+            }
 
             // Read the Trivy scan results
             const data = JSON.parse(fs.readFileSync('scan-results.json', 'utf8'));
