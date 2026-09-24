@@ -255,6 +255,8 @@ jobs:
           sudo apt-get install -y wget > /dev/null 2>&1
           wget -q https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.deb
           sudo dpkg -i trivy_0.74.0_Linux-64bit.deb > /dev/null 2>&1
+          # One results file per image, so issues cover all images of the repo
+          mkdir -p scan-results
           scanned_images=0
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
@@ -265,6 +267,7 @@ jobs:
             else
               image=$directory
             fi
+            results=scan-results/$(echo "$image" | sed 's/\//_/g')
             docker buildx build --load --platform ${{ matrix.arch }} \
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
             $directory 
@@ -274,12 +277,12 @@ jobs:
             docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
 
             # Generate JSON output for CVE extraction
-            trivy image --format json --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output scan-results.json --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --format json --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output $results.json --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
             # Generate Markdown output for human-readable report
-            trivy image --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output $results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
 
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
-            cat scan-results.md >> $GITHUB_STEP_SUMMARY
+            cat $results.md >> $GITHUB_STEP_SUMMARY
           done
           echo "SCANNED_IMAGES=$scanned_images" >> $GITHUB_ENV
         env:
@@ -290,9 +293,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: trivy-scan-results-${{ github.run_id }}
-          path: |
-            scan-results.md
-            scan-results.json
+          path: scan-results/
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
         env:
@@ -303,9 +304,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: trivy-scan-results
-          path: |
-            scan-results.md
-            scan-results.json
+          path: scan-results/
 
       - name: Create Issues for CVEs
         uses: actions/github-script@v7
@@ -332,8 +331,10 @@ jobs:
               return;
             }
 
-            // Read the Trivy scan results
-            const data = JSON.parse(fs.readFileSync('scan-results.json', 'utf8'));
+            // Read the Trivy scan results of all images
+            const scanResults = fs.readdirSync('scan-results')
+              .filter(f => f.endsWith('.json'))
+              .map(f => JSON.parse(fs.readFileSync(`scan-results/${f}`, 'utf8')));
 
             // Package types (Results[].Type) to open issues for; '*' means all
             const rawPkgTypes = (process.env.CVE_ISSUE_PKG_TYPES || 'jar').trim();
@@ -343,15 +344,17 @@ jobs:
 
             // Extract vulnerabilities and prevent duplicates
             const vulnerabilities = new Map();
-            for (const result of data.Results || []) {
-              if (allowedTypes && !allowedTypes.includes(result.Type)) {
-                console.log(`Skipping ${result.Target} (type: ${result.Type})`);
-                continue;
-              }
-              for (const vuln of result.Vulnerabilities || []) {
-                if (vuln.Severity === 'HIGH' || vuln.Severity === 'CRITICAL') {
-                  if (!vulnerabilities.has(vuln.VulnerabilityID)) {
-                    vulnerabilities.set(vuln.VulnerabilityID, { ...vuln, PkgType: result.Type });
+            for (const data of scanResults) {
+              for (const result of data.Results || []) {
+                if (allowedTypes && !allowedTypes.includes(result.Type)) {
+                  console.log(`Skipping ${data.ArtifactName}: ${result.Target} (type: ${result.Type})`);
+                  continue;
+                }
+                for (const vuln of result.Vulnerabilities || []) {
+                  if (vuln.Severity === 'HIGH' || vuln.Severity === 'CRITICAL') {
+                    if (!vulnerabilities.has(vuln.VulnerabilityID)) {
+                      vulnerabilities.set(vuln.VulnerabilityID, { ...vuln, PkgType: result.Type });
+                    }
                   }
                 }
               }
@@ -397,20 +400,21 @@ jobs:
               }
             }
 
-            // Close open issues of this repo whose CVE is no longer found by the scan.
-            // scan-results.json holds only the last scanned image, so closing is safe
-            // only when a single image was scanned.
+            // Close open issues of this repo whose CVE is no longer found in any image.
+            // Only when every scanned image has results, so a missing file can't close valid issues.
             const scannedImages = Number(process.env.SCANNED_IMAGES || 0);
-            if (scannedImages !== 1) {
-              console.log(`Skipping closing of resolved CVE issues: ${scannedImages} images scanned, expected 1.`);
+            if (scannedImages === 0 || scanResults.length !== scannedImages) {
+              console.log(`Skipping closing of resolved CVE issues: ${scanResults.length} results for ${scannedImages} scanned images.`);
               return;
             }
 
-            // Any CVE still present, regardless of package type, keeps its issue open
+            // Any CVE still present in any image, regardless of package type, keeps its issue open
             const foundCves = new Set();
-            for (const result of data.Results || []) {
-              for (const vuln of result.Vulnerabilities || []) {
-                foundCves.add(vuln.VulnerabilityID);
+            for (const data of scanResults) {
+              for (const result of data.Results || []) {
+                for (const vuln of result.Vulnerabilities || []) {
+                  foundCves.add(vuln.VulnerabilityID);
+                }
               }
             }
 
