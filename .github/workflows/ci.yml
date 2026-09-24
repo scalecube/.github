@@ -32,6 +32,14 @@ on:
         description: |
           Fail pipeline if CVEs are identified.
           Default is '0', possible values '0' or '1'
+      cve-issue-pkg-types:
+        type: string
+        required: false
+        default: 'jar'
+        description: |
+          Comma-separated Trivy package types (Results[].Type) to open CVE issues for.
+          Default 'jar' files issues only for application (Maven) dependencies.
+          Use '*' to file issues for every scanned type, or e.g. 'jar,alpine'.
       debian-packages:
         type: boolean
         required: false
@@ -295,6 +303,7 @@ jobs:
           GH_ISSUE_LABELS: ${{ vars.GH_ISSUE_LABELS }}
           GH_ORGANIZATION: ${{ vars.GH_ORGANIZATION || github.repository_owner }}
           GH_ISSUES_REPO: ${{ vars.GH_ISSUES_REPO || github.event.repository.name  }}
+          CVE_ISSUE_PKG_TYPES: ${{ inputs.cve-issue-pkg-types }}
         with:
           github-token: ${{ env.ACTIVE_TOKEN }}
           script: |
@@ -305,13 +314,23 @@ jobs:
             // Read the Trivy scan results
             const data = JSON.parse(fs.readFileSync('scan-results.json', 'utf8'));
 
+            // Package types (Results[].Type) to open issues for; '*' means all
+            const rawPkgTypes = (process.env.CVE_ISSUE_PKG_TYPES || 'jar').trim();
+            const allowedTypes = rawPkgTypes === '*'
+              ? null
+              : rawPkgTypes.split(',').map(t => t.trim()).filter(Boolean);
+
             // Extract vulnerabilities and prevent duplicates
             const vulnerabilities = new Map();
             for (const result of data.Results || []) {
+              if (allowedTypes && !allowedTypes.includes(result.Type)) {
+                console.log(`Skipping ${result.Target} (type: ${result.Type})`);
+                continue;
+              }
               for (const vuln of result.Vulnerabilities || []) {
                 if (vuln.Severity === 'HIGH' || vuln.Severity === 'CRITICAL') {
                   if (!vulnerabilities.has(vuln.VulnerabilityID)) {
-                    vulnerabilities.set(vuln.VulnerabilityID, vuln);
+                    vulnerabilities.set(vuln.VulnerabilityID, { ...vuln, PkgType: result.Type });
                   }
                 }
               }
@@ -335,12 +354,13 @@ jobs:
                 const labels = [vuln.Severity, ...customLabels];
             
                 // Create a new issue
-                const issueTitle = `[${vuln.Severity}] Security Issue - ${cve}`;
+                const pkg = `${vuln.PkgType}:${vuln.PkgName}`;
+                const issueTitle = `[${vuln.Severity}] ${pkg} - ${cve}`;
                 await github.rest.issues.create({
                   owner: repoOwner,
                   repo: repoName,
                   title: issueTitle,
-                  body: `### Trivy Security Scan Findings in \`${context.repo.repo}\`\n\n- **CVE**: ${cve}\n- **Severity**: ${vuln.Severity}\n\n[CVE Details](https://nvd.nist.gov/vuln/detail/${cve})\n\n[View scan results](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }})`,
+                  body: `### Trivy Security Scan Findings in \`${context.repo.repo}\`\n\n- **CVE**: ${cve}\n- **Severity**: ${vuln.Severity}\n- **Package**: \`${pkg}\`\n- **Installed**: ${vuln.InstalledVersion} → **Fixed in**: ${vuln.FixedVersion || 'n/a'}\n\n[CVE Details](https://nvd.nist.gov/vuln/detail/${cve})\n\n[View scan results](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }})`,
                   labels: labels
                 });
                 console.log(`Created issue for ${cve} with labels: ${labels.join(', ')}`);
