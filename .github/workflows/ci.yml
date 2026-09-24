@@ -278,8 +278,8 @@ jobs:
 
             # Generate JSON output for CVE extraction
             trivy image --format json --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output $results.json --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
-            # Generate Markdown output for human-readable report
-            trivy image --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output $results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            # Generate Markdown output for human-readable report from the JSON, without scanning again
+            trivy convert --format template --template @template.tpl --output $results.md $results.json
 
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
             cat $results.md >> $GITHUB_STEP_SUMMARY
