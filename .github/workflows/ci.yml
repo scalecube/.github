@@ -191,12 +191,14 @@ jobs:
         run: echo '# Scan Docker Images' >> $GITHUB_STEP_SUMMARY
       - name: Free disk space
         run: |
-          df -h
-          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL
-          sudo apt-get clean
-          sudo docker image prune --all --force || true
-          docker system df
-          df -h        
+          df -h /
+          # Fast removals (few large files) that free enough space for the scan
+          time sudo rm -rf /opt/hostedtoolcache/CodeQL /usr/share/dotnet
+          time sudo apt-get clean
+          time sudo docker image prune --all --force > /dev/null || true
+          df -h /
+          # Slow removals (many small files) continue in the background during the next steps
+          (time sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup) < /dev/null > /tmp/free-disk-space.log 2>&1 &
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -250,6 +252,7 @@ jobs:
           EOF
       - name: Build and Scan Docker images with Trivy
         run: |
+          echo "Background disk clean up:"; cat /tmp/free-disk-space.log || true; df -h /
           echo "Install Trivy scanner for Docker Image Security scanning"
           sudo apt-get update
           sudo apt-get install -y wget > /dev/null 2>&1
