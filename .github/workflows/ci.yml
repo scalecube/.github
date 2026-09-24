@@ -32,6 +32,22 @@ on:
         description: |
           Fail pipeline if CVEs are identified.
           Default is '0', possible values '0' or '1'
+      cve-issue-pkg-types:
+        type: string
+        required: false
+        default: 'jar'
+        description: |
+          Comma-separated Trivy package types (Results[].Type) to open CVE issues for.
+          Default 'jar' files issues only for application (Maven) dependencies.
+          Use '*' to file issues for every scanned type, or e.g. 'jar,alpine'.
+      cve-issue-branches:
+        type: string
+        required: false
+        default: 'develop,master'
+        description: |
+          Comma-separated branches on which CVE issues are created.
+          The Trivy scan runs on every branch; on other branches the results
+          are available only in the job summary and scan artifact.
       debian-packages:
         type: boolean
         required: false
@@ -239,14 +255,19 @@ jobs:
           sudo apt-get install -y wget > /dev/null 2>&1
           wget -q https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.deb
           sudo dpkg -i trivy_0.74.0_Linux-64bit.deb > /dev/null 2>&1
+          # One results file per image, so issues cover all images of the repo
+          mkdir -p scan-results
+          scanned_images=0
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
+            scanned_images=$((scanned_images + 1))
             echo Run docker buildx build for $directory
             if [[ $directory == '.' ]]; then
               image=${{ github.event.repository.name }}
             else
               image=$directory
             fi
+            results=scan-results/$(echo "$image" | sed 's/\//_/g')
             docker buildx build --load --platform ${{ matrix.arch }} \
             -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
             $directory 
@@ -256,13 +277,14 @@ jobs:
             docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
 
             # Generate JSON output for CVE extraction
-            trivy image --format json --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output scan-results.json --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --format json --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output $results.json --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
             # Generate Markdown output for human-readable report
-            trivy image --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output scan-results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --format template --template @template.tpl --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output $results.md --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
 
             echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
-            cat scan-results.md >> $GITHUB_STEP_SUMMARY
+            cat $results.md >> $GITHUB_STEP_SUMMARY
           done
+          echo "SCANNED_IMAGES=$scanned_images" >> $GITHUB_ENV
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
@@ -271,9 +293,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: trivy-scan-results-${{ github.run_id }}
-          path: |
-            scan-results.md
-            scan-results.json
+          path: scan-results/
       - name: Show Docker images
         run: docker images | grep ${GITHUB_REPOSITORY} || (echo Docker images not found && exit 1)
         env:
@@ -284,9 +304,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: trivy-scan-results
-          path: |
-            scan-results.md
-            scan-results.json
+          path: scan-results/
 
       - name: Create Issues for CVEs
         uses: actions/github-script@v7
@@ -295,6 +313,8 @@ jobs:
           GH_ISSUE_LABELS: ${{ vars.GH_ISSUE_LABELS }}
           GH_ORGANIZATION: ${{ vars.GH_ORGANIZATION || github.repository_owner }}
           GH_ISSUES_REPO: ${{ vars.GH_ISSUES_REPO || github.event.repository.name  }}
+          CVE_ISSUE_PKG_TYPES: ${{ inputs.cve-issue-pkg-types }}
+          CVE_ISSUE_BRANCHES: ${{ inputs.cve-issue-branches }}
         with:
           github-token: ${{ env.ACTIVE_TOKEN }}
           script: |
@@ -302,16 +322,39 @@ jobs:
             const repoOwner = process.env.GH_ORGANIZATION;
             const repoName = process.env.GH_ISSUES_REPO;
 
-            // Read the Trivy scan results
-            const data = JSON.parse(fs.readFileSync('scan-results.json', 'utf8'));
+            // Create issues only on the configured branches
+            const branches = (process.env.CVE_ISSUE_BRANCHES || 'develop,master')
+              .split(',').map(b => b.trim()).filter(Boolean);
+            const branch = context.ref.replace(/^refs\/heads\//, '');
+            if (!branches.includes(branch)) {
+              console.log(`Skipping CVE issues: '${branch}' is not one of [${branches.join(', ')}].`);
+              return;
+            }
+
+            // Read the Trivy scan results of all images
+            const scanResults = fs.readdirSync('scan-results')
+              .filter(f => f.endsWith('.json'))
+              .map(f => JSON.parse(fs.readFileSync(`scan-results/${f}`, 'utf8')));
+
+            // Package types (Results[].Type) to open issues for; '*' means all
+            const rawPkgTypes = (process.env.CVE_ISSUE_PKG_TYPES || 'jar').trim();
+            const allowedTypes = rawPkgTypes === '*'
+              ? null
+              : rawPkgTypes.split(',').map(t => t.trim()).filter(Boolean);
 
             // Extract vulnerabilities and prevent duplicates
             const vulnerabilities = new Map();
-            for (const result of data.Results || []) {
-              for (const vuln of result.Vulnerabilities || []) {
-                if (vuln.Severity === 'HIGH' || vuln.Severity === 'CRITICAL') {
-                  if (!vulnerabilities.has(vuln.VulnerabilityID)) {
-                    vulnerabilities.set(vuln.VulnerabilityID, vuln);
+            for (const data of scanResults) {
+              for (const result of data.Results || []) {
+                if (allowedTypes && !allowedTypes.includes(result.Type)) {
+                  console.log(`Skipping ${data.ArtifactName}: ${result.Target} (type: ${result.Type})`);
+                  continue;
+                }
+                for (const vuln of result.Vulnerabilities || []) {
+                  if (vuln.Severity === 'HIGH' || vuln.Severity === 'CRITICAL') {
+                    if (!vulnerabilities.has(vuln.VulnerabilityID)) {
+                      vulnerabilities.set(vuln.VulnerabilityID, { ...vuln, PkgType: result.Type });
+                    }
                   }
                 }
               }
@@ -323,30 +366,85 @@ jobs:
               : ['Security', 'Trivy'];
 
             // Process vulnerabilities
+            const sourceRepo = context.repo.repo;
             for (const [cve, vuln] of vulnerabilities) {
               const searchResult = await github.rest.search.issuesAndPullRequests({
-                q: `repo:${repoOwner}/${repoName} "${cve}" in:title state:open is:issue`,
+                q: `repo:${repoOwner}/${repoName} "${cve}" "${sourceRepo}" in:title state:open is:issue`,
                 per_page: 100
               });
-              
-              const issueExists = searchResult.data.total_count > 0;
+
+              // Search is token-based ("discovery" also matches "discovery-service"),
+              // so verify the exact repo and CVE in the title
+              const issueExists = searchResult.data.items.some(issue =>
+                issue.title.includes(`[${sourceRepo}] [${cve}]`));
               if (!issueExists) {
                 // Ensure severity label is always included
                 const labels = [vuln.Severity, ...customLabels];
             
                 // Create a new issue
-                const issueTitle = `[${vuln.Severity}] Security Issue - ${cve}`;
+                const pkg = `${vuln.PkgType}:${vuln.PkgName}`;
+                // Short package name and installed version in the title,
+                // e.g. 'org.eclipse.jetty:jetty-http' 10.0.26 -> 'jetty-http:10.0.26'
+                const shortPkg = `${vuln.PkgType}:${vuln.PkgName.split(':').pop()}:${vuln.InstalledVersion}`;
+                const issueTitle = `[${vuln.Severity}] [${sourceRepo}] [${cve}] ${shortPkg}`;
                 await github.rest.issues.create({
                   owner: repoOwner,
                   repo: repoName,
                   title: issueTitle,
-                  body: `### Trivy Security Scan Findings in \`${context.repo.repo}\`\n\n- **CVE**: ${cve}\n- **Severity**: ${vuln.Severity}\n\n[CVE Details](https://nvd.nist.gov/vuln/detail/${cve})\n\n[View scan results](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }})`,
+                  body: `### Trivy Security Scan Findings in \`${context.repo.repo}\`\n\n- **CVE**: ${cve}\n- **Severity**: ${vuln.Severity}\n- **Package**: \`${pkg}\`\n- **Installed**: ${vuln.InstalledVersion} → **Fixed in**: ${vuln.FixedVersion || 'n/a'}\n\n[CVE Details](https://nvd.nist.gov/vuln/detail/${cve})\n\n[View scan results](https://github.com/${context.repo.owner}/${context.repo.repo}/actions/runs/${{ github.run_id }})`,
                   labels: labels
                 });
-                console.log(`Created issue for ${cve} with labels: ${labels.join(', ')}`);
+                console.log(`Created issue for ${sourceRepo} ${cve} with labels: ${labels.join(', ')}`);
               } else {
-                console.log(`Issue for ${cve} already exists.`);
+                console.log(`Issue for ${sourceRepo} ${cve} already exists.`);
               }
+            }
+
+            // Close open issues of this repo whose CVE is no longer found in any image.
+            // Only when every scanned image has results, so a missing file can't close valid issues.
+            const scannedImages = Number(process.env.SCANNED_IMAGES || 0);
+            if (scannedImages === 0 || scanResults.length !== scannedImages) {
+              console.log(`Skipping closing of resolved CVE issues: ${scanResults.length} results for ${scannedImages} scanned images.`);
+              return;
+            }
+
+            // Any CVE still present in any image, regardless of package type, keeps its issue open
+            const foundCves = new Set();
+            for (const data of scanResults) {
+              for (const result of data.Results || []) {
+                for (const vuln of result.Vulnerabilities || []) {
+                  foundCves.add(vuln.VulnerabilityID);
+                }
+              }
+            }
+
+            const openIssues = await github.paginate(github.rest.search.issuesAndPullRequests, {
+              q: `repo:${repoOwner}/${repoName} "${sourceRepo}" in:title state:open is:issue`,
+              per_page: 100
+            });
+
+            // Title format: [SEVERITY] [<repo>] [<CVE>] <type>:<artifact>:<version>
+            const titlePrefix = `] [${sourceRepo}] [`;
+            for (const issue of openIssues) {
+              const start = issue.title.indexOf(titlePrefix);
+              if (start < 0) continue;
+              const cve = issue.title.slice(start + titlePrefix.length).split(']')[0];
+              if (foundCves.has(cve)) continue;
+
+              await github.rest.issues.createComment({
+                owner: repoOwner,
+                repo: repoName,
+                issue_number: issue.number,
+                body: `${cve} is no longer found in \`${sourceRepo}\` on \`${branch}\` (${context.sha.slice(0, 7)}), closing as resolved.\n\n[View scan results](https://github.com/${context.repo.owner}/${sourceRepo}/actions/runs/${{ github.run_id }})`
+              });
+              await github.rest.issues.update({
+                owner: repoOwner,
+                repo: repoName,
+                issue_number: issue.number,
+                state: 'closed',
+                state_reason: 'completed'
+              });
+              console.log(`Closed #${issue.number} for ${sourceRepo} ${cve}: no longer found.`);
             }
 
   push:
