@@ -6,7 +6,13 @@ on:
       mvn-verify-opts:
         type: string
         required: false
-        default: "['']"  
+        default: "['']"
+        description: Extra Maven options (JSON array, joined with spaces), e.g. "['-Pcoverage']".
+      mvn-threads:
+        type: string
+        required: false
+        default: "1C"
+        description: Maven -T value for parallel module builds. Use "1" to build modules sequentially.
     secrets:
       ORGANIZATION_TOKEN:
         required: true
@@ -15,26 +21,22 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a master release or a release deploy half-way (tags/packages would be left inconsistent).
+  cancel-in-progress: ${{ github.ref_name != 'master' && github.event_name != 'release' }}
+
+env:
+  MVN_OPTS: -B -V -T ${{ inputs.mvn-threads }} ${{ join(fromJson(inputs.mvn-verify-opts), ' ') }}
 
 jobs:
-  codacy-analysis-cli:
-    name: Codacy Analysis CLI
+  build:
+    name: CI
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Cache Maven dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
+          fetch-depth: ${{ github.ref_name == 'master' && 0 || 1 }}
+          fetch-tags: ${{ github.ref_name == 'master' }}
 
       - name: Set up JDK
         uses: actions/setup-java@v4
@@ -49,12 +51,68 @@ jobs:
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
 
-      - name: Maven Build
-        run: mvn clean install -DskipTests=true -Ddockerfile.skip=true -B -V
+      - name: Maven Verify
+        if: github.event_name != 'release' && github.ref_name != 'master'
+        run: mvn verify $MVN_OPTS
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
 
+      - name: Configure git
+        if: github.event_name != 'release' && github.ref_name == 'master'
+        run: |
+          echo "Git checkout branch ${GITHUB_REF##*/}, commit ${GITHUB_SHA} was pushed by ${GITHUB_ACTOR}"
+          git checkout ${GITHUB_REF##*/}
+          echo "Git reset hard to ${GITHUB_SHA}"
+          git reset --hard ${GITHUB_SHA}
+          git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
+          git config --global user.name "${GITHUB_ACTOR}"
+
+      # Only rewrites versions, commits and tags locally (no build, no push).
+      - name: Prepare release
+        id: prepare_release
+        if: github.event_name != 'release' && github.ref_name == 'master'
+        run: |
+          mvn -B build-helper:parse-version release:prepare \
+            -DreleaseVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.incrementalVersion} \
+            -DdevelopmentVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.nextIncrementalVersion}-SNAPSHOT \
+            -DpreparationGoals=validate \
+            -DpushChanges=false
+          echo release_tag=$(grep '^scm.tag=' release.properties | cut -d= -f2) >> $GITHUB_OUTPUT
+        env:
+          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+
+      # Single build of the release tag: compile, test and deploy. deployAtEnd uploads nothing unless every module succeeds.
+      - name: Build and deploy release
+        if: github.event_name != 'release' && github.ref_name == 'master'
+        run: |
+          git checkout ${{ steps.prepare_release.outputs.release_tag }}
+          mvn deploy $MVN_OPTS -DdeployAtEnd=true -Ddocker.image.extra-tag=master -Dmaven.resolver.transport=wagon
+        env:
+          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+
+      - name: Push release commits and tag
+        if: github.event_name != 'release' && github.ref_name == 'master'
+        run: |
+          git checkout ${GITHUB_REF##*/}
+          git push --atomic origin ${GITHUB_REF##*/} ${{ steps.prepare_release.outputs.release_tag }}
+
+      - name: Deploy release version
+        if: github.event_name == 'release'
+        run: |
+          release_version=${{ github.event.release.tag_name }}
+          echo Release version $release_version
+          mvn -B versions:set -DnewVersion=$release_version -DgenerateBackupPoms=false
+          mvn deploy $MVN_OPTS -DdeployAtEnd=true
+        env:
+          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+
+      - name: Rollback release (remove tag)
+        if: failure() && github.event_name == 'release'
+        run: git push origin :refs/tags/${{ github.event.release.tag_name }}
+
+      # Codacy reuses the classes and JaCoCo reports produced above instead of rebuilding the project in a separate job.
       - name: Run Codacy Analysis CLI
+        if: github.event_name != 'release'
         uses: codacy/codacy-analysis-cli-action@master
         env:
           CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
@@ -67,101 +125,18 @@ jobs:
           verbose: true
         continue-on-error: true
 
-      - name: Run codacy-coverage-reporter
+      - name: Find all JaCoCo reports
+        id: find-coverage
+        if: github.event_name != 'release'
+        run: |
+          files=$(find . -path '*/target/site/jacoco/jacoco.xml' | paste -sd "," -)
+          echo "files=$files" >> $GITHUB_OUTPUT
+
+      - name: Upload coverage to Codacy
+        if: github.event_name != 'release' && steps.find-coverage.outputs.files != ''
         uses: codacy/codacy-coverage-reporter-action@v1.3.0
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          coverage-reports: ${{ steps.find-coverage.outputs.files }}
+          language: Java
         continue-on-error: true
-
-  build:
-    name: CI
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Cache Maven dependencies
-        uses: actions/cache@v3
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          java-version: '25'
-          distribution: 'temurin'
-          cache: 'maven'
-          server-id: github
-          server-username: GITHUB_ACTOR
-          server-password: GITHUB_TOKEN
-
-      - name: Set up Maven
-        run: cp build.settings.xml ~/.m2/settings.xml
-
-      - name: Maven Build
-        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -B -V
-        env:
-          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-
-      - name: Maven Verify
-        run: mvn verify -B
-        if: github.event_name != 'release'
-
-      - name: Configure git
-        run: |
-          echo "Git checkout branch ${GITHUB_REF##*/}, commit ${GITHUB_SHA} was pushed by ${GITHUB_ACTOR}"
-          git checkout ${GITHUB_REF##*/}
-          echo "Git reset hard to ${GITHUB_SHA}"
-          git reset --hard ${GITHUB_SHA}
-          git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
-          git config --global user.name "${GITHUB_ACTOR}"
-        if: github.ref_name == 'master'
-
-      - name: Prepare release
-        id: prepare_release
-        run: |
-          mvn -B build-helper:parse-version release:prepare \
-            -DreleaseVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.incrementalVersion} \
-            -DdevelopmentVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.nextIncrementalVersion}-SNAPSHOT \
-            -Darguments="-DskipTests=true"
-          echo release_tag=$(git describe --tags --abbrev=0) >> $GITHUB_OUTPUT
-        if: github.ref_name == 'master'
-
-      - name: Perform release
-        run: mvn -B release:perform -Darguments="-DskipTests=true -Ddocker.image.extra-tag=master -Dmaven.resolver.transport=wagon"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          GITHUB_REPOSITORY: ${{ secrets.GITHUB_REPOSITORY }}
-        if: github.ref_name == 'master'
-
-      - name: Rollback release
-        if: failure() && github.ref_name == 'master'
-        run: |
-          mvn release:rollback || echo "nothing to rollback"
-          if [ ! -z "${{ steps.prepare_release.outputs.release_tag }}" ]
-          then
-            git tag -d ${{ steps.prepare_release.outputs.release_tag }}
-            git push origin :refs/tags/${{ steps.prepare_release.outputs.release_tag }}
-          fi
-
-      - name: Deploy release version
-        run: |
-          release_version=${{ github.event.release.tag_name }}
-          echo Release version $release_version
-          mvn versions:set -DnewVersion=$release_version -DgenerateBackupPoms=false
-          mvn versions:commit
-          mvn clean deploy -B -V
-        env:
-          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-        if: github.event_name == 'release'
-
-      - name: Rollback release (remove tag)
-        if: failure() && github.event_name == 'release'
-        run: git push origin :refs/tags/${{ github.event.release.tag_name }}
-  
