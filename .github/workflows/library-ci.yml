@@ -13,6 +13,11 @@ on:
         required: false
         default: "1C"
         description: Maven -T value for parallel module builds. Use "1" to build modules sequentially.
+      rc-retention-days:
+        type: number
+        required: false
+        default: 30
+        description: After a master release, delete this repo's RC package versions (x.y.z-...-rcN) older than this many days. Use 0 to disable.
     secrets:
       ORGANIZATION_TOKEN:
         required: true
@@ -165,3 +170,44 @@ jobs:
         with:
           path: ~/.m2/repository
           key: ${{ steps.maven-cache.outputs.cache-primary-key }}
+
+  # GitHub Packages gets slower serving maven-metadata.xml as a package piles up versions, and most of them are
+  # branch RCs. Runs after the release, so it never delays or fails it. Needs delete:packages on ORGANIZATION_TOKEN.
+  cleanup-rc-versions:
+    name: Delete old RC versions
+    needs: build
+    if: github.event_name == 'push' && github.ref_name == 'master' && inputs.rc-retention-days > 0
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: true
+    env:
+      GH_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+      OWNER: ${{ github.repository_owner }}
+      REPO: ${{ github.event.repository.name }}
+      RETENTION_DAYS: ${{ inputs.rc-retention-days }}
+      # Keeps a run well under the 5000 requests/hour API limit; a large backlog is drained over several releases.
+      MAX_DELETIONS: 1000
+    steps:
+      - name: Delete RC versions older than ${{ inputs.rc-retention-days }} days
+        run: |
+          cutoff=$(date -u -d "-${RETENTION_DAYS} days" +%Y-%m-%dT%H:%M:%SZ)
+          echo "Deleting RC versions of ${OWNER}/${REPO} packages created before ${cutoff}"
+          packages=$(gh api --paginate "/orgs/${OWNER}/packages?package_type=maven&per_page=100" \
+            --jq ".[] | select(.repository.name == \"${REPO}\") | .name")
+          deleted=0
+          for pkg in $packages; do
+            ids=$(gh api --paginate "/orgs/${OWNER}/packages/maven/${pkg}/versions?per_page=100" \
+              --jq ".[] | select((.name | test(\"-rc[0-9]+$\"; \"i\")) and .created_at < \"${cutoff}\") | .id")
+            count=0
+            for id in $ids; do
+              if [ $deleted -ge $MAX_DELETIONS ]; then
+                echo "::notice::Reached ${MAX_DELETIONS} deletions, the rest is left for the next release"
+                break 2
+              fi
+              gh api -X DELETE "/orgs/${OWNER}/packages/maven/${pkg}/versions/${id}" && deleted=$((deleted + 1)) && count=$((count + 1))
+            done
+            echo "${pkg}: deleted ${count}"
+            echo "- \`${pkg}\`: ${count}" >> $GITHUB_STEP_SUMMARY
+          done
+          echo "Deleted ${deleted} RC versions in total"
+          echo "**Deleted ${deleted} RC versions older than ${RETENTION_DAYS} days**" >> $GITHUB_STEP_SUMMARY
