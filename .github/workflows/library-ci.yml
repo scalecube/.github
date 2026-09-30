@@ -79,7 +79,8 @@ jobs:
           git config --global user.email "${GITHUB_ACTOR}@users.noreply.github.com"
           git config --global user.name "${GITHUB_ACTOR}"
 
-      # Only rewrites versions, commits and tags locally (no build, no push).
+      # Only rewrites versions, commits and tags locally (no build, no push). preparationGoals must not need
+      # dependency resolution: at validate the release-version reactor jars do not exist yet, so use clean.
       - name: Prepare release
         id: prepare_release
         if: github.event_name != 'release' && github.ref_name == 'master'
@@ -87,7 +88,7 @@ jobs:
           mvn -B build-helper:parse-version release:prepare \
             -DreleaseVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.incrementalVersion} \
             -DdevelopmentVersion=\${parsedVersion.majorVersion}.\${parsedVersion.minorVersion}.\${parsedVersion.nextIncrementalVersion}-SNAPSHOT \
-            -DpreparationGoals=validate \
+            -DpreparationGoals=clean \
             -DpushChanges=false
           echo release_tag=$(grep '^scm.tag=' release.properties | cut -d= -f2) >> $GITHUB_OUTPUT
         env:
