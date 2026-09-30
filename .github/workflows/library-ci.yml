@@ -95,11 +95,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
 
       # Single build of the release tag: compile, test and deploy. deployAtEnd uploads nothing unless every module succeeds.
+      # performRelease turns on Maven's release-profile, which adds the -sources and -javadoc jars.
       - name: Build and deploy release
         if: github.event_name != 'release' && github.ref_name == 'master'
         run: |
           git checkout ${{ steps.prepare_release.outputs.release_tag }}
-          mvn deploy $MVN_OPTS -DdeployAtEnd=true -Ddocker.image.extra-tag=master -Dmaven.resolver.transport=wagon
+          mvn deploy $MVN_OPTS -DdeployAtEnd=true -DperformRelease=true -Ddocker.image.extra-tag=master -Dmaven.resolver.transport=wagon
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
 
@@ -115,7 +116,7 @@ jobs:
           release_version=${{ github.event.release.tag_name }}
           echo Release version $release_version
           mvn -B versions:set -DnewVersion=$release_version -DgenerateBackupPoms=false
-          mvn deploy $MVN_OPTS -DdeployAtEnd=true
+          mvn deploy $MVN_OPTS -DdeployAtEnd=true -DperformRelease=true
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
 
