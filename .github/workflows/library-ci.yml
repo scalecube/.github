@@ -116,7 +116,7 @@ jobs:
           release_version=${{ github.event.release.tag_name }}
           echo Release version $release_version
           mvn -B versions:set -DnewVersion=$release_version -DgenerateBackupPoms=false
-          mvn deploy $MVN_OPTS -DdeployAtEnd=true -DperformRelease=true
+          mvn deploy $MVN_OPTS -DdeployAtEnd=true -DperformRelease=true -DskipTests
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
 
