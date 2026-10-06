@@ -694,14 +694,15 @@ jobs:
             const owner = '${{ vars.GH_ORGANIZATION }}';
             const repo = '${{ vars.GH_ISSUES_REPO }}';
 
-            // Check if an open issue with the same title exists
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner,
-              repo,
-              state: 'open'
+            // Check if an open issue with the same title exists.
+            // Search by title instead of listing open issues: the list returns only the first page,
+            // and the issues repo also holds many CVE issues. Search is token-based, so match the exact title.
+            const { data: { items } } = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${owner}/${repo} "${issueTitle}" in:title state:open is:issue`,
+              per_page: 100
             });
 
-            const issueExists = issues.some(issue => issue.title === issueTitle);
+            const issueExists = items.some(issue => issue.title === issueTitle);
 
             if (!issueExists) {
               // Create a new issue
@@ -738,10 +739,11 @@ jobs:
             const owner = '${{ vars.GH_ORGANIZATION }}';
             const repo = '${{ vars.GH_ISSUES_REPO }}';
 
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner,
-              repo,
-              state: 'open'
+            // Search by title instead of listing open issues: the list returns only the first page,
+            // and the issues repo also holds many CVE issues
+            const { data: { items: issues } } = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${owner}/${repo} "${issueTitle}" in:title state:open is:issue`,
+              per_page: 100
             });
 
             if (issues.length === 0) {
