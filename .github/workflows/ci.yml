@@ -97,7 +97,8 @@ env:
 
 jobs:
   build:
-    name: Build (${{ matrix.arch }})
+    # Named after the test shard options, so shards can be told apart (e.g. 'Build (-Dgroups=trades)')
+    name: ${{ matrix.mvn-verify-opts != '' && format('Build ({0})', matrix.mvn-verify-opts) || 'Build' }}
     runs-on: ${{ inputs.runner }}
     timeout-minutes: 60
     strategy:
@@ -147,7 +148,7 @@ jobs:
         if: always() && inputs.tests == true
         uses: actions/upload-artifact@v7
         with:
-          name: logs-${{ github.run_id }}-${{ github.run_number }}-${{ runner.name }}
+          name: logs-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ strategy.job-index }}
           path: target/logs/
           overwrite: true
       # Codacy reuses the classes built above instead of building the project in a separate job.
