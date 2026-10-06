@@ -31,7 +31,8 @@ on:
         default: '0'
         description: |
           Fail pipeline if CVEs are identified.
-          Default is '0', possible values '0' or '1'
+          Default is '0', possible values '0' or '1'.
+          The scan does not block push, so this fails the workflow but does not stop publishing.
       cve-issue-pkg-types:
         type: string
         required: false
@@ -61,13 +62,17 @@ on:
       ORGANIZATION_TOKEN:
         required: true
       HELM_REGISTRY_URL:
-        required: true
+        required: false
+        description: Not used (charts are pushed to ghcr.io with the Docker login). Kept so callers that pass it don't fail.
       HELM_REGISTRY_USER:
-        required: true
+        required: false
+        description: Not used (charts are pushed to ghcr.io with the Docker login). Kept so callers that pass it don't fail.
       HELM_REGISTRY_PASSWORD:
-        required: true
+        required: false
+        description: Not used (charts are pushed to ghcr.io with the Docker login). Kept so callers that pass it don't fail.
       GCP_DEB_REGISTRY_CREDENTIALS:
-        required: true
+        required: false
+        description: Needed only with debian-packages.
       CODACY_PROJECT_TOKEN:
         required: false
       TRIVY_DB_REPOSITORY:
@@ -77,7 +82,8 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a publish half-way (images, charts and packages would be left inconsistent)
+  cancel-in-progress: ${{ github.event_name != 'release' && github.ref_name != 'master' && github.ref_name != 'develop' }}
 
 env:
   VERSION: >
@@ -90,28 +96,66 @@ env:
     }}
 
 jobs:
-  codacy-analysis-cli:
-    name: Codacy Analysis CLI
+  build:
+    # Named after the test shard options, so shards can be told apart (e.g. 'Build (-Dgroups=trades)')
+    name: ${{ matrix.mvn-verify-opts != '' && format('Build ({0})', matrix.mvn-verify-opts) || 'Build' }}
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [ 'linux/amd64' ]
+        mvn-verify-opts: ${{ fromJson(inputs.mvn-verify-opts) }}
+    env:
+      HAS_CODACY_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN != '' }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - name: jobName
+        run: |
+          echo '# Build 🚀' >> $GITHUB_STEP_SUMMARY
+          echo "mvn verify ${{ matrix.mvn-verify-opts }}" >> $GITHUB_STEP_SUMMARY
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
+
+      # A pom.xml change gives a new key, so an exact-key cache would miss. restore-keys falls back to
+      # the latest cache saved on the default branch (readable by every branch).
+      - name: Restore Maven cache
+        id: maven-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            maven-${{ runner.os }}-
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: '25'
           distribution: 'temurin'
-          cache: 'maven'
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
       - name: Maven Build
-        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
+        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -ntp -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+      - name: Maven Verify
+        if: inputs.tests == true && github.event_name != 'release'
+        run: mvn verify ${{ matrix.mvn-verify-opts }} -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -ntp
+        env:
+          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
+      - name: Upload logs
+        if: always() && inputs.tests == true
+        uses: actions/upload-artifact@v7
+        with:
+          name: logs-${{ github.run_id }}-${{ github.run_attempt }}-shard-${{ strategy.job-index }}
+          path: target/logs/
+          overwrite: true
+      # Codacy reuses the classes built above instead of building the project in a separate job.
+      # It runs after the tests, so it is skipped when they fail.
+      # The code is the same in every test shard, so only the first shard runs it.
       - name: Run Codacy Analysis CLI
+        if: strategy.job-index == 0 && github.event_name != 'release' && env.HAS_CODACY_TOKEN == 'true'
         uses: codacy/codacy-analysis-cli-action@master
         env:
           CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
@@ -123,65 +167,36 @@ jobs:
           skip-uncommitted-files-check: true
           verbose: true
         continue-on-error: true
-
-  build:
-    name: Build (${{ matrix.arch }})
-    runs-on: ${{ inputs.runner }}
-    strategy:
-      fail-fast: false
-      matrix:
-        arch: [ 'linux/amd64' ]
-        mvn-verify-opts: ${{ fromJson(inputs.mvn-verify-opts) }}
-    steps:
-      - name: jobName
-        run: |
-          echo '# Build 🚀' >> $GITHUB_STEP_SUMMARY
-          echo "mvn verify ${{ matrix.mvn-verify-opts }}" >> $GITHUB_STEP_SUMMARY
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          java-version: '25'
-          distribution: 'temurin'
-          cache: 'maven'
-      - name: Set up Maven
-        run: cp build.settings.xml ~/.m2/settings.xml
-      - name: Maven Build
-        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
-        env:
-          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-      - name: Maven Verify
-        if: inputs.tests == true && github.event_name != 'release'
-        run: mvn verify ${{ matrix.mvn-verify-opts }} -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B
-        env:
-          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-      - name: Upload logs
-        if: always() && inputs.tests == true
-        uses: actions/upload-artifact@v4
-        with:
-          name: logs-${{ github.run_id }}-${{ github.run_number }}-${{ runner.name }}
-          path: target/logs/
-          overwrite: true
       - name: Find all JaCoCo reports
         id: find-coverage
+        if: env.HAS_CODACY_TOKEN == 'true'
         run: |
           files=$(find . -path '*/target/site/jacoco/jacoco.xml' | paste -sd "," -)
           echo "files=$files" >> $GITHUB_OUTPUT
       - name: Upload coverage to Codacy
-        if: ${{ steps.find-coverage.outputs.files != '' }}
+        if: env.HAS_CODACY_TOKEN == 'true' && steps.find-coverage.outputs.files != ''
         uses: codacy/codacy-coverage-reporter-action@v1.3.0
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
           coverage-reports: ${{ steps.find-coverage.outputs.files }}
           language: Java
 
+      # Only the first shard of the default branch saves the cache: branch caches can't be read by
+      # other branches and only fill the repo cache quota.
+      - name: Prune SNAPSHOT artifacts from Maven cache
+        if: success() && strategy.job-index == 0 && github.ref_name == github.event.repository.default_branch && steps.maven-cache.outputs.cache-hit != 'true'
+        run: find ~/.m2/repository -type d -name '*-SNAPSHOT' -prune -exec rm -rf {} +
+      - name: Save Maven cache
+        if: success() && strategy.job-index == 0 && github.ref_name == github.event.repository.default_branch && steps.maven-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.maven-cache.outputs.cache-primary-key }}
+
   scan:
     name: Scan with Trivy
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -199,28 +214,39 @@ jobs:
           df -h /
           # Slow removals (many small files) continue in the background during the next steps
           (time sudo rm -rf /usr/local/lib/android /opt/ghc /usr/local/.ghcup) < /dev/null > /tmp/free-disk-space.log 2>&1 &
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
+      # A pom.xml change gives a new key, so an exact-key cache would miss. restore-keys falls back to
+      # the latest cache saved on the default branch (readable by every branch).
+      - name: Restore Maven cache
+        id: maven-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            maven-${{ runner.os }}-
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: '25'
           distribution: 'temurin'
-          cache: 'maven'
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
       - name: Maven Build
-        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
+        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -ntp -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Login to Docker
-        run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+        run: echo "$ORGANIZATION_TOKEN" | docker login ghcr.io -u ${GITHUB_ACTOR} --password-stdin
+        env:
+          ORGANIZATION_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
       - name: Prepare TEST_IMAGE_TAG env
         run: |
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
@@ -261,30 +287,38 @@ jobs:
           # One results file per image, so issues cover all images of the repo
           mkdir -p scan-results
           scanned_images=0
-          for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
+          # Same images as the push job: 'Dockerfile' and 'Dockerfile-<suffix>' (tag gets '-<suffix>')
+          for dockerfile in `find * -maxdepth 10 -mindepth 0 -type f \( -name 'Dockerfile' -o -name 'Dockerfile-*' \)`
           do
             scanned_images=$((scanned_images + 1))
-            echo Run docker buildx build for $directory
+            directory=$(dirname "$dockerfile")
+            echo Run docker buildx build for $dockerfile
             if [[ $directory == '.' ]]; then
               image=${{ github.event.repository.name }}
             else
               image=$directory
             fi
-            results=scan-results/$(echo "$image" | sed 's/\//_/g')
+            if [[ "$(basename "$dockerfile")" =~ ^Dockerfile-(.+)$ ]]; then
+              tag=${{ env.TEST_IMAGE_TAG }}-${BASH_REMATCH[1]}
+            else
+              tag=${{ env.TEST_IMAGE_TAG }}
+            fi
+            results=scan-results/$(echo "$image-$tag" | sed 's/\//_/g')
             docker buildx build --load --platform ${{ matrix.arch }} \
-            -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
-            $directory 
-            echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
+            -f "$dockerfile" \
+            -t ghcr.io/${GITHUB_REPOSITORY}/$image:$tag \
+            $directory
+            echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:$tag"
             export TRIVY_DB_REPOSITORY=${{ secrets.TRIVY_DB_REPOSITORY }}
             export TRIVY_JAVA_DB_REPOSITORY=${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
-            docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u ${GITHUB_ACTOR} --password-stdin
 
             # Generate JSON output for CVE extraction
-            trivy image --format json --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output $results.json --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --format json --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output $results.json --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:$tag
             # Generate Markdown output for human-readable report from the JSON, without scanning again
             trivy convert --format template --template @template.tpl --output $results.md $results.json
 
-            echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
+            echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:$tag" >> $GITHUB_STEP_SUMMARY
             cat $results.md >> $GITHUB_STEP_SUMMARY
           done
           echo "SCANNED_IMAGES=$scanned_images" >> $GITHUB_ENV
@@ -299,13 +333,13 @@ jobs:
           TRIVY_JAVA_DB_REPOSITORY: ${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
           TRIVY_DB_REPOSITORY: ${{ secrets.TRIVY_DB_REPOSITORY }}
       - name: Upload scan results as artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: trivy-scan-results
           path: scan-results/
 
       - name: Create Issues for CVEs
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           ACTIVE_TOKEN: ${{ secrets.ORGANIZATION_TOKEN || secrets.GITHUB_TOKEN }}
           GH_ISSUE_LABELS: ${{ vars.GH_ISSUE_LABELS }}
@@ -446,6 +480,23 @@ jobs:
               }
             }
 
+      # Runs after the CVE issues step, so issues are still created when the build fails here
+      - name: Fail on vulnerabilities
+        if: inputs.fail-on-vulnerability-issues == '1'
+        env:
+          CVE_ISSUE_PKG_TYPES: ${{ inputs.cve-issue-pkg-types }}
+        run: |
+          # Count only the package types (Results[].Type) that get CVE issues; '*' means all
+          count=$(jq -s --arg types "$CVE_ISSUE_PKG_TYPES" '
+            ($types | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""))) as $allowed
+            | [.[].Results[]? | select($types == "*" or (.Type as $t | $allowed | index($t))) | .Vulnerabilities[]?]
+            | length' scan-results/*.json)
+          echo "Found $count HIGH/CRITICAL vulnerabilities of types '$CVE_ISSUE_PKG_TYPES'"
+          if [[ "$count" -gt 0 ]]; then
+            echo "::error::Trivy found $count HIGH/CRITICAL vulnerabilities with a fix available"
+            exit 1
+          fi
+
   push:
     outputs:
       images: ${{ steps.pushDockerImages.outputs.images }}
@@ -454,37 +505,50 @@ jobs:
       || (github.event_name == 'push' && (github.ref_name == 'develop' || github.ref_name == 'master'))
       || github.event_name == 'release'
     name: Push artifacts
-    needs: [ build, scan ]
+    # Does not wait for the scan: it runs in parallel and still fails the workflow when it fails
+    needs: [ build ]
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
     steps:
       - name: jobName
         run: echo '# Push 🚀' >> $GITHUB_STEP_SUMMARY
       - name: Overwrite VERSION env
         run: |
           echo VERSION=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           fetch-tags: true
+      # A pom.xml change gives a new key, so an exact-key cache would miss. restore-keys falls back to
+      # the latest cache saved on the default branch (readable by every branch).
+      - name: Restore Maven cache
+        id: maven-cache
+        uses: actions/cache/restore@v6
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            maven-${{ runner.os }}-
       - name: Set up JDK
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v6
         with:
           java-version: '25'
           distribution: 'temurin'
-          cache: 'maven'
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
       - name: Deploy jars
-        run: mvn clean deploy -DskipTests -Dgpg.skip=true -Drevision=${VERSION}-SNAPSHOT -B -V -U
+        run: mvn clean deploy -DskipTests -Dgpg.skip=true -Drevision=${VERSION}-SNAPSHOT -B -ntp -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
           GITHUB_EVENT_NAME: ${{ github.event_name }}
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v1
+        uses: docker/setup-qemu-action@v4
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
       - name: Login to Docker
-        run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+        run: echo "$ORGANIZATION_TOKEN" | docker login ghcr.io -u ${GITHUB_ACTOR} --password-stdin
+        env:
+          ORGANIZATION_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
 
       - name: Push Docker images
         id: pushDockerImages
@@ -547,7 +611,6 @@ jobs:
               json_array+="$element,"
           done
           json_array="${json_array%,}]"
-          echo "::set-output name=img::$json_array"
 
           VERSION=$(date +%Y%m%d%H%M%S)
           echo "images=$json_array" >> $GITHUB_OUTPUT
@@ -586,20 +649,20 @@ jobs:
           done
 
       - name: Authenticate to Google Cloud
-        if: always() && inputs.debian-packages == true
-        uses: 'google-github-actions/auth@v2'
+        if: inputs.debian-packages == true
+        uses: 'google-github-actions/auth@v3'
         with:
           project_id: '${{ vars.GCP_DEB_REGISTRY_PROJECT }}'
           credentials_json: '${{ secrets.GCP_DEB_REGISTRY_CREDENTIALS}}'
 
       - name: 'Set up Cloud SDK'
-        if: always() && inputs.debian-packages == true
-        uses: 'google-github-actions/setup-gcloud@v2'
+        if: inputs.debian-packages == true
+        uses: 'google-github-actions/setup-gcloud@v3'
         with:
           version: '>= 363.0.0'
 
       - name: Build .deb packages and Push to Google Artifactory DEB Registry
-        if: always() && inputs.debian-packages == true
+        if: inputs.debian-packages == true
         run: |
           for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
           do
@@ -643,20 +706,28 @@ jobs:
           REGISTRY_LOCATION: ${{ vars.GCP_REGISTRY_LOCATION }}
           DIRECTORY: ${{ env.DIRECTORY }}
 
-      - name: Rollback release
-        if: failure() && github.event_name == 'release'
-        run: |
-          echo Remove git tag
-          git push origin :refs/tags/${{ github.event.release.tag_name }}
+  # A separate job, so the tag is also removed when build fails (then push is skipped).
+  # Not on scan failure: the scan does not block push, so artifacts may already be published.
+  rollback:
+    name: Rollback release
+    if: failure() && github.event_name == 'release'
+    needs: [ build, push ]
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - name: Remove git tag
+        run: git push origin :refs/tags/${{ github.event.release.tag_name }}
 
   notify_failure:
     name: Create Issue on Failure
     if: ${{ failure() && github.event_name == 'schedule' }}
     needs: [ build, scan ]
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
     steps:
       - name: Create GitHub Issue
-        uses: actions/github-script@v6
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.ORGANIZATION_TOKEN }}
           script: |
@@ -669,14 +740,15 @@ jobs:
             const owner = '${{ vars.GH_ORGANIZATION }}';
             const repo = '${{ vars.GH_ISSUES_REPO }}';
 
-            // Check if an open issue with the same title exists
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner,
-              repo,
-              state: 'open'
+            // Check if an open issue with the same title exists.
+            // Search by title instead of listing open issues: the list returns only the first page,
+            // and the issues repo also holds many CVE issues. Search is token-based, so match the exact title.
+            const { data: { items } } = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${owner}/${repo} "${issueTitle}" in:title state:open is:issue`,
+              per_page: 100
             });
 
-            const issueExists = issues.some(issue => issue.title === issueTitle);
+            const issueExists = items.some(issue => issue.title === issueTitle);
 
             if (!issueExists) {
               // Create a new issue
@@ -698,9 +770,10 @@ jobs:
     if: ${{ success() && github.event_name == 'schedule' }}
     needs: [ build, scan ]
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
     steps:
       - name: Close GitHub Issue
-        uses: actions/github-script@v6
+        uses: actions/github-script@v9
         with:
           github-token: ${{ secrets.ORGANIZATION_TOKEN }}
           script: |
@@ -713,10 +786,11 @@ jobs:
             const owner = '${{ vars.GH_ORGANIZATION }}';
             const repo = '${{ vars.GH_ISSUES_REPO }}';
 
-            const { data: issues } = await github.rest.issues.listForRepo({
-              owner,
-              repo,
-              state: 'open'
+            // Search by title instead of listing open issues: the list returns only the first page,
+            // and the issues repo also holds many CVE issues
+            const { data: { items: issues } } = await github.rest.search.issuesAndPullRequests({
+              q: `repo:${owner}/${repo} "${issueTitle}" in:title state:open is:issue`,
+              per_page: 100
             });
 
             if (issues.length === 0) {
