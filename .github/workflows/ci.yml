@@ -61,13 +61,17 @@ on:
       ORGANIZATION_TOKEN:
         required: true
       HELM_REGISTRY_URL:
-        required: true
+        required: false
+        description: Not used (charts are pushed to ghcr.io with the Docker login). Kept so callers that pass it don't fail.
       HELM_REGISTRY_USER:
-        required: true
+        required: false
+        description: Not used (charts are pushed to ghcr.io with the Docker login). Kept so callers that pass it don't fail.
       HELM_REGISTRY_PASSWORD:
-        required: true
+        required: false
+        description: Not used (charts are pushed to ghcr.io with the Docker login). Kept so callers that pass it don't fail.
       GCP_DEB_REGISTRY_CREDENTIALS:
-        required: true
+        required: false
+        description: Needed only with debian-packages.
       CODACY_PROJECT_TOKEN:
         required: false
       TRIVY_DB_REPOSITORY:
