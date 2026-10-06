@@ -91,40 +91,6 @@ env:
     }}
 
 jobs:
-  codacy-analysis-cli:
-    name: Codacy Analysis CLI
-    runs-on: ${{ inputs.runner }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-          fetch-tags: true
-      - name: Set up JDK
-        uses: actions/setup-java@v4
-        with:
-          java-version: '25'
-          distribution: 'temurin'
-          cache: 'maven'
-      - name: Set up Maven
-        run: cp build.settings.xml ~/.m2/settings.xml
-      - name: Maven Build
-        run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -V -U
-        env:
-          GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
-      - name: Run Codacy Analysis CLI
-        uses: codacy/codacy-analysis-cli-action@master
-        env:
-          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
-        with:
-          tool: spotbugs
-          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
-          upload: true
-          max-allowed-issues: 2147483647
-          skip-uncommitted-files-check: true
-          verbose: true
-        continue-on-error: true
-
   build:
     name: Build (${{ matrix.arch }})
     runs-on: ${{ inputs.runner }}
@@ -133,6 +99,8 @@ jobs:
       matrix:
         arch: [ 'linux/amd64' ]
         mvn-verify-opts: ${{ fromJson(inputs.mvn-verify-opts) }}
+    env:
+      HAS_CODACY_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN != '' }}
     steps:
       - name: jobName
         run: |
@@ -167,13 +135,30 @@ jobs:
           name: logs-${{ github.run_id }}-${{ github.run_number }}-${{ runner.name }}
           path: target/logs/
           overwrite: true
+      # Codacy reuses the classes built above instead of building the project in a separate job.
+      # It runs after the tests, so it is skipped when they fail.
+      # The code is the same in every test shard, so only the first shard runs it.
+      - name: Run Codacy Analysis CLI
+        if: strategy.job-index == 0 && github.event_name != 'release' && env.HAS_CODACY_TOKEN == 'true'
+        uses: codacy/codacy-analysis-cli-action@master
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        with:
+          tool: spotbugs
+          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          upload: true
+          max-allowed-issues: 2147483647
+          skip-uncommitted-files-check: true
+          verbose: true
+        continue-on-error: true
       - name: Find all JaCoCo reports
         id: find-coverage
+        if: env.HAS_CODACY_TOKEN == 'true'
         run: |
           files=$(find . -path '*/target/site/jacoco/jacoco.xml' | paste -sd "," -)
           echo "files=$files" >> $GITHUB_OUTPUT
       - name: Upload coverage to Codacy
-        if: ${{ steps.find-coverage.outputs.files != '' }}
+        if: env.HAS_CODACY_TOKEN == 'true' && steps.find-coverage.outputs.files != ''
         uses: codacy/codacy-coverage-reporter-action@v1.3.0
         with:
           project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
