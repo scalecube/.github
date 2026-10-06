@@ -77,7 +77,8 @@ on:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Never cancel a publish half-way (images, charts and packages would be left inconsistent)
+  cancel-in-progress: ${{ github.event_name != 'release' && github.ref_name != 'master' && github.ref_name != 'develop' }}
 
 env:
   VERSION: >
