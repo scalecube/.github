@@ -446,6 +446,23 @@ jobs:
               }
             }
 
+      # Runs after the CVE issues step, so issues are still created when the build fails here
+      - name: Fail on vulnerabilities
+        if: inputs.fail-on-vulnerability-issues == '1'
+        env:
+          CVE_ISSUE_PKG_TYPES: ${{ inputs.cve-issue-pkg-types }}
+        run: |
+          # Count only the package types (Results[].Type) that get CVE issues; '*' means all
+          count=$(jq -s --arg types "$CVE_ISSUE_PKG_TYPES" '
+            ($types | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""))) as $allowed
+            | [.[].Results[]? | select($types == "*" or (.Type as $t | $allowed | index($t))) | .Vulnerabilities[]?]
+            | length' scan-results/*.json)
+          echo "Found $count HIGH/CRITICAL vulnerabilities of types '$CVE_ISSUE_PKG_TYPES'"
+          if [[ "$count" -gt 0 ]]; then
+            echo "::error::Trivy found $count HIGH/CRITICAL vulnerabilities with a fix available"
+            exit 1
+          fi
+
   push:
     outputs:
       images: ${{ steps.pushDockerImages.outputs.images }}
