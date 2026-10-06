@@ -111,12 +111,21 @@ jobs:
           fetch-depth: 0
           fetch-tags: true
 
+      # A pom.xml change gives a new key, so an exact-key cache would miss. restore-keys falls back to
+      # the latest cache saved on the default branch (readable by every branch).
+      - name: Restore Maven cache
+        id: maven-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            maven-${{ runner.os }}-
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           java-version: '25'
           distribution: 'temurin'
-          cache: 'maven'
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
       - name: Maven Build
@@ -165,6 +174,18 @@ jobs:
           coverage-reports: ${{ steps.find-coverage.outputs.files }}
           language: Java
 
+      # Only the first shard of the default branch saves the cache: branch caches can't be read by
+      # other branches and only fill the repo cache quota.
+      - name: Prune SNAPSHOT artifacts from Maven cache
+        if: success() && strategy.job-index == 0 && github.ref_name == github.event.repository.default_branch && steps.maven-cache.outputs.cache-hit != 'true'
+        run: find ~/.m2/repository -type d -name '*-SNAPSHOT' -prune -exec rm -rf {} +
+      - name: Save Maven cache
+        if: success() && strategy.job-index == 0 && github.ref_name == github.event.repository.default_branch && steps.maven-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ steps.maven-cache.outputs.cache-primary-key }}
+
   scan:
     name: Scan with Trivy
     runs-on: ${{ inputs.runner }}
@@ -189,12 +210,21 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+      # A pom.xml change gives a new key, so an exact-key cache would miss. restore-keys falls back to
+      # the latest cache saved on the default branch (readable by every branch).
+      - name: Restore Maven cache
+        id: maven-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            maven-${{ runner.os }}-
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           java-version: '25'
           distribution: 'temurin'
-          cache: 'maven'
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
       - name: Maven Build
@@ -477,12 +507,21 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
+      # A pom.xml change gives a new key, so an exact-key cache would miss. restore-keys falls back to
+      # the latest cache saved on the default branch (readable by every branch).
+      - name: Restore Maven cache
+        id: maven-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.m2/repository
+          key: maven-${{ runner.os }}-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            maven-${{ runner.os }}-
       - name: Set up JDK
         uses: actions/setup-java@v4
         with:
           java-version: '25'
           distribution: 'temurin'
-          cache: 'maven'
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
       - name: Deploy jars
