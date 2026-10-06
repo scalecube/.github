@@ -242,7 +242,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
       - name: Login to Docker
-        run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+        run: echo "$ORGANIZATION_TOKEN" | docker login ghcr.io -u ${GITHUB_ACTOR} --password-stdin
+        env:
+          ORGANIZATION_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
       - name: Prepare TEST_IMAGE_TAG env
         run: |
           echo TEST_IMAGE_TAG=$(echo ${VERSION} | sed 's/\//-/g') >> $GITHUB_ENV
@@ -307,7 +309,7 @@ jobs:
             echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:$tag"
             export TRIVY_DB_REPOSITORY=${{ secrets.TRIVY_DB_REPOSITORY }}
             export TRIVY_JAVA_DB_REPOSITORY=${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
-            docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+            echo "$GITHUB_TOKEN" | docker login ghcr.io -u ${GITHUB_ACTOR} --password-stdin
 
             # Generate JSON output for CVE extraction
             trivy image --format json --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output $results.json --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:$tag
@@ -541,7 +543,9 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
       - name: Login to Docker
-        run: docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
+        run: echo "$ORGANIZATION_TOKEN" | docker login ghcr.io -u ${GITHUB_ACTOR} --password-stdin
+        env:
+          ORGANIZATION_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
 
       - name: Push Docker images
         id: pushDockerImages
