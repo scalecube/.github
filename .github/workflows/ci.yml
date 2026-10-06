@@ -261,30 +261,38 @@ jobs:
           # One results file per image, so issues cover all images of the repo
           mkdir -p scan-results
           scanned_images=0
-          for directory in `find * -maxdepth 10 -mindepth 0 -type f -name 'Dockerfile' | xargs dirname`
+          # Same images as the push job: 'Dockerfile' and 'Dockerfile-<suffix>' (tag gets '-<suffix>')
+          for dockerfile in `find * -maxdepth 10 -mindepth 0 -type f \( -name 'Dockerfile' -o -name 'Dockerfile-*' \)`
           do
             scanned_images=$((scanned_images + 1))
-            echo Run docker buildx build for $directory
+            directory=$(dirname "$dockerfile")
+            echo Run docker buildx build for $dockerfile
             if [[ $directory == '.' ]]; then
               image=${{ github.event.repository.name }}
             else
               image=$directory
             fi
-            results=scan-results/$(echo "$image" | sed 's/\//_/g')
+            if [[ "$(basename "$dockerfile")" =~ ^Dockerfile-(.+)$ ]]; then
+              tag=${{ env.TEST_IMAGE_TAG }}-${BASH_REMATCH[1]}
+            else
+              tag=${{ env.TEST_IMAGE_TAG }}
+            fi
+            results=scan-results/$(echo "$image-$tag" | sed 's/\//_/g')
             docker buildx build --load --platform ${{ matrix.arch }} \
-            -t ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }} \
-            $directory 
-            echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}"
+            -f "$dockerfile" \
+            -t ghcr.io/${GITHUB_REPOSITORY}/$image:$tag \
+            $directory
+            echo "Running Trivy scanner for ghcr.io/${GITHUB_REPOSITORY}/$image:$tag"
             export TRIVY_DB_REPOSITORY=${{ secrets.TRIVY_DB_REPOSITORY }}
             export TRIVY_JAVA_DB_REPOSITORY=${{ secrets.TRIVY_JAVA_DB_REPOSITORY }}
             docker login ghcr.io -u ${GITHUB_ACTOR} --password ${{ secrets.ORGANIZATION_TOKEN }}
 
             # Generate JSON output for CVE extraction
-            trivy image --format json --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output $results.json --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}
+            trivy image --format json --exit-code 0 --no-progress --ignore-unfixed --pkg-types os,library --severity CRITICAL,HIGH --output $results.json --timeout 10m  ghcr.io/${GITHUB_REPOSITORY}/$image:$tag
             # Generate Markdown output for human-readable report from the JSON, without scanning again
             trivy convert --format template --template @template.tpl --output $results.md $results.json
 
-            echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:${{ env.TEST_IMAGE_TAG }}" >> $GITHUB_STEP_SUMMARY
+            echo "## Docker Image: ghcr.io/${GITHUB_REPOSITORY}/$image:$tag" >> $GITHUB_STEP_SUMMARY
             cat $results.md >> $GITHUB_STEP_SUMMARY
           done
           echo "SCANNED_IMAGES=$scanned_images" >> $GITHUB_ENV
