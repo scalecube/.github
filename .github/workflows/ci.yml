@@ -94,6 +94,7 @@ jobs:
   build:
     name: Build (${{ matrix.arch }})
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -189,6 +190,7 @@ jobs:
   scan:
     name: Scan with Trivy
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
     strategy:
       fail-fast: false
       matrix:
@@ -497,6 +499,7 @@ jobs:
     name: Push artifacts
     needs: [ build, scan ]
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 45
     steps:
       - name: jobName
         run: echo '# Push 🚀' >> $GITHUB_STEP_SUMMARY
@@ -698,6 +701,7 @@ jobs:
     if: failure() && github.event_name == 'release'
     needs: [ build, scan, push ]
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - name: Remove git tag
@@ -708,6 +712,7 @@ jobs:
     if: ${{ failure() && github.event_name == 'schedule' }}
     needs: [ build, scan ]
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
     steps:
       - name: Create GitHub Issue
         uses: actions/github-script@v7
@@ -753,6 +758,7 @@ jobs:
     if: ${{ success() && github.event_name == 'schedule' }}
     needs: [ build, scan ]
     runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
     steps:
       - name: Close GitHub Issue
         uses: actions/github-script@v7
