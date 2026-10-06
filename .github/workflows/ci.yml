@@ -669,11 +669,16 @@ jobs:
           REGISTRY_LOCATION: ${{ vars.GCP_REGISTRY_LOCATION }}
           DIRECTORY: ${{ env.DIRECTORY }}
 
-      - name: Rollback release
-        if: failure() && github.event_name == 'release'
-        run: |
-          echo Remove git tag
-          git push origin :refs/tags/${{ github.event.release.tag_name }}
+  # A separate job, so the tag is also removed when build or scan fails (then push is skipped)
+  rollback:
+    name: Rollback release
+    if: failure() && github.event_name == 'release'
+    needs: [ build, scan, push ]
+    runs-on: ${{ inputs.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Remove git tag
+        run: git push origin :refs/tags/${{ github.event.release.tag_name }}
 
   notify_failure:
     name: Create Issue on Failure
