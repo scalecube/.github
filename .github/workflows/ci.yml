@@ -176,6 +176,8 @@ jobs:
       # shards are done, so Codacy does not compute coverage before every part has arrived.
       - name: Upload coverage to Codacy
         if: env.HAS_CODACY_TOKEN == 'true' && steps.find-coverage.outputs.files != ''
+        # A Codacy or network problem must not fail the build
+        continue-on-error: true
         env:
           CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
           COVERAGE_FILES: ${{ steps.find-coverage.outputs.files }}
@@ -207,6 +209,7 @@ jobs:
     steps:
       - name: Send final coverage notice to Codacy
         if: env.HAS_CODACY_TOKEN == 'true'
+        continue-on-error: true
         env:
           CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
         run: bash <(curl -Ls https://raw.githubusercontent.com/codacy/codacy-coverage-reporter/master/get.sh) final
