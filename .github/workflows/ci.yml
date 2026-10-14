@@ -172,13 +172,17 @@ jobs:
         run: |
           files=$(find . -path '*/target/site/jacoco/jacoco.xml' | paste -sd "," -)
           echo "files=$files" >> $GITHUB_OUTPUT
+      # Each shard uploads only its part. The coverage job sends the final notice once, after all
+      # shards are done, so Codacy does not compute coverage before every part has arrived.
       - name: Upload coverage to Codacy
         if: env.HAS_CODACY_TOKEN == 'true' && steps.find-coverage.outputs.files != ''
-        uses: codacy/codacy-coverage-reporter-action@v1.3.0
-        with:
-          project-token: ${{ secrets.CODACY_PROJECT_TOKEN }}
-          coverage-reports: ${{ steps.find-coverage.outputs.files }}
-          language: Java
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+          COVERAGE_FILES: ${{ steps.find-coverage.outputs.files }}
+        run: |
+          reports=""
+          for file in ${COVERAGE_FILES//,/ }; do reports="$reports -r $file"; done
+          bash <(curl -Ls https://raw.githubusercontent.com/codacy/codacy-coverage-reporter/master/get.sh) report --language Java $reports --partial
 
       # Only the first shard of the default branch saves the cache: branch caches can't be read by
       # other branches and only fill the repo cache quota.
@@ -191,6 +195,21 @@ jobs:
         with:
           path: ~/.m2/repository
           key: ${{ steps.maven-cache.outputs.cache-primary-key }}
+
+  coverage:
+    name: Finish Codacy coverage
+    if: inputs.tests == true && github.event_name != 'release'
+    needs: [ build ]
+    runs-on: ${{ inputs.runner }}
+    timeout-minutes: 10
+    env:
+      HAS_CODACY_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN != '' }}
+    steps:
+      - name: Send final coverage notice to Codacy
+        if: env.HAS_CODACY_TOKEN == 'true'
+        env:
+          CODACY_PROJECT_TOKEN: ${{ secrets.CODACY_PROJECT_TOKEN }}
+        run: bash <(curl -Ls https://raw.githubusercontent.com/codacy/codacy-coverage-reporter/master/get.sh) final
 
   scan:
     name: Scan with Trivy
