@@ -21,14 +21,6 @@ on:
         required: false
         default: true
         description: Run tests.
-      skip-maven-build:
-        type: boolean
-        required: false
-        default: false
-        description: |
-          Skip the Maven Build step (mvn clean install of all modules) before Maven Verify.
-          Use it when every mvn-verify-opts entry builds what it needs with -pl <module> -am,
-          so the module is not built twice. Maven Build still runs for releases and without tests.
       mvn-verify-opts:
         type: string
         required: false
@@ -143,13 +135,12 @@ jobs:
       - name: Set up Maven
         run: cp build.settings.xml ~/.m2/settings.xml
       - name: Maven Build
-        if: ${{ !(inputs.skip-maven-build && inputs.tests && github.event_name != 'release') }}
         run: mvn clean install -DskipTests=true -Dmaven.javadoc.skip=true -Ddockerfile.skip=true -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -ntp -V -U
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
       - name: Maven Verify
         if: inputs.tests == true && github.event_name != 'release'
-        run: mvn verify ${{ matrix.mvn-verify-opts }} ${{ inputs.skip-maven-build && '-U' || '' }} -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -ntp
+        run: mvn verify ${{ matrix.mvn-verify-opts }} -Dgithub.event.release.prerelease="${{ github.event.release.prerelease }}" -B -ntp
         env:
           GITHUB_TOKEN: ${{ secrets.ORGANIZATION_TOKEN }}
       - name: Upload logs
