@@ -58,6 +58,14 @@ on:
         required: false
         type: string
         default: ubuntu-latest
+      logs-path:
+        type: string
+        required: false
+        default: '**/logs/**/*.log'
+        description: |
+          Test logs to upload as the `logs-*` artifact, one path or glob per line.
+          Default: the log files under any `logs` directory, e.g. `<module>/logs/<repo>/<id>/server.log`
+          written by services started in tests (`env.logDir=logs/...`).
     secrets:
       ORGANIZATION_TOKEN:
         required: true
@@ -147,8 +155,10 @@ jobs:
         if: always() && inputs.tests == true
         uses: actions/upload-artifact@v7
         with:
-          name: logs-${{ github.run_id }}-${{ github.run_number }}-${{ runner.name }}
-          path: target/logs/
+          # The shard index keeps the logs of test shards that run on runners with the same name
+          name: logs-${{ github.run_id }}-${{ github.run_number }}-${{ runner.name }}-${{ strategy.job-index }}
+          path: ${{ inputs.logs-path }}
+          if-no-files-found: ignore
           overwrite: true
       # Codacy reuses the classes built above instead of building the project in a separate job.
       # It runs after the tests, so it is skipped when they fail.
