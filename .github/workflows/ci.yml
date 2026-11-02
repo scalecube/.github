@@ -313,8 +313,8 @@ jobs:
           echo "Install Trivy scanner for Docker Image Security scanning"
           sudo apt-get update
           sudo apt-get install -y wget > /dev/null 2>&1
-          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.deb
-          sudo dpkg -i trivy_0.74.0_Linux-64bit.deb > /dev/null 2>&1
+          wget -q https://github.com/aquasecurity/trivy/releases/download/v0.76.1/trivy_0.76.1_Linux-64bit.deb
+          sudo dpkg -i trivy_0.76.1_Linux-64bit.deb > /dev/null 2>&1
           # One results file per image, so issues cover all images of the repo
           mkdir -p scan-results
           scanned_images=0
